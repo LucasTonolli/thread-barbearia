@@ -1,0 +1,22 @@
+# Compilação Java (.class, binários)
+*.class
+*.jar
+*.war
+*.ear
+bin/
+out/
+target/
+build/
+
+# Configurações de IDEs
+.idea/
+*.iml
+.vscode/
+.settings/
+.project
+.classpath
+
+# Logs e Arquivos temporários do Sistema
+*.log
+.DS_Store
+Thumbs.db

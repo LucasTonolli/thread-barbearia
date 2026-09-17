@@ -4,6 +4,23 @@ Implementação da versão clássica do **Problema da Barbearia de Ralph Hilzer*
 
 ---
 
+## Integrantes e Frentes de Trabalho
+
+| Nome          | Frente de Trabalho | Branch               |
+| ------------- | ------------------ | -------------------- |
+| _(preencher)_ | Barbeiro           | `feature/barbeiro`   |
+| _(preencher)_ | Cliente e Espera   | `feature/cliente`    |
+| _(preencher)_ | Integração         | `feature/integracao` |
+
+---
+
+## Pré-requisitos
+
+- **JDK:** _(definir a versão do Java a ser usada pelo grupo — ex.: Java 17, Java 21 — e preencher aqui)_.
+- Ferramenta de build (Maven ou Gradle), conforme escolha do grupo.
+
+---
+
 ## 1. Visão Geral do Problema
 
 Uma barbearia possui:

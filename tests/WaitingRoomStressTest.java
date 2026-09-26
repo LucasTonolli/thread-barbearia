@@ -48,6 +48,7 @@ public class WaitingRoomStressTest {
                     Client served = waitingRoom.getNext();
                     if (served != null) {
                         servedClients.add(served);
+                        served.completeAttendance(); // simula fim do atendimento (corte + pagamento)
                     }
                     Thread.sleep(2);
                 } catch (Exception e) {

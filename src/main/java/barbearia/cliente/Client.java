@@ -3,7 +3,7 @@ package barbearia.cliente;
 public class Client implements Runnable {
     private final String name;
     private final WaitingRoom waitingRoom;
-
+    private boolean iAmNext = false; // Indica se este cliente é o próximo a ser atendido
     public Client(String name, WaitingRoom waitingRoom) {
         super();
         this.name = name;
@@ -24,6 +24,14 @@ public class Client implements Runnable {
         return entered;
     }
 
+    public void iAmTheNext() {
+        this.iAmNext = true;
+    }
+
+    public boolean isTheNext() {
+        return iAmNext;
+    }
+
     @Override 
     public void run() {
       boolean entrou = enterWaitingRoom(); // ajustar o retorno de enterWaitingRoom() pra devolver o boolean
@@ -36,4 +44,6 @@ public class Client implements Runnable {
     public String toString() {
         return name;
     }
+
+
 }

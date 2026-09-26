@@ -10,19 +10,30 @@ public class WaitingRoom{
   private static final int MAX_STANDING_CLIENTS = 13; 
 
   public synchronized boolean enter(Client client){
+    if(this.isSeatedClientsFull() && this.isStandingClientsFull()){
+      return false;
+    }
+
     if (!this.isSeatedClientsFull()) {  
-       try { Thread.sleep(2); } catch (InterruptedException e) {}
       seatedClients.offer(client);
-      System.out.println(client.getName() + " is seated in the waiting room.");
-      return true;
-    } else if (!this.isStandingClientsFull()) {
-       try { Thread.sleep(2); } catch (InterruptedException e) {}
+      System.out.println(client.getName() + " is seated in the waiting room.");  
+    } else  {
       standingClients.offer(client);
       System.out.println(client.getName() + " is standing in the waiting room.");
-      return true;
     } 
-    System.out.println("Waiting room is full. " + client.getName() + " cannot enter."); 
-    return false;
+
+    while(!client.isTheNext()){
+      try {
+        this.wait();
+      } catch (InterruptedException e) {
+        if (!seatedClients.remove(client)) {
+            standingClients.remove(client);
+        }
+        System.out.println("Client left before being served: " + e.getMessage());
+        return false;
+      }
+    }
+    return true;
   }
 
   public synchronized Client getNext() {
@@ -37,8 +48,10 @@ public class WaitingRoom{
     } else {
       this.seatedClients.offer(this.standingClients.poll());
       System.out.println("A standing client has been seated.");
+      // Notifica o cliente que está sendo servido
     }
-
+    client.iAmTheNext(); // Marca o cliente como o próximo a ser atendido
+    this.notifyAll(); 
     return client;
   }
 

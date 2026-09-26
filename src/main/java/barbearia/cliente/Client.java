@@ -4,6 +4,7 @@ public class Client implements Runnable {
     private final String name;
     private final WaitingRoom waitingRoom;
     private boolean iAmNext = false; // Indica se este cliente é o próximo a ser atendido
+    private boolean completedAttendance = false; // Indica se este cliente completou o atendimento
     public Client(String name, WaitingRoom waitingRoom) {
         super();
         this.name = name;
@@ -32,12 +33,30 @@ public class Client implements Runnable {
         return iAmNext;
     }
 
+    public synchronized void completeAttendance() {
+        this.completedAttendance = true;
+        this.notifyAll();
+    }
+
+    public synchronized void waitUntilAttended() {
+        while (!this.completedAttendance) {
+            try {
+                wait();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+        }
+    }
+
     @Override 
     public void run() {
-      boolean entrou = enterWaitingRoom(); // ajustar o retorno de enterWaitingRoom() pra devolver o boolean
+      boolean entrou = enterWaitingRoom();
       if (!entrou) {
           return; // desiste, thread termina aqui
       }
+
+      waitUntilAttended();
     }
 
     @Override

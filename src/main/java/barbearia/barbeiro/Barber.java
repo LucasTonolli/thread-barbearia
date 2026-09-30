@@ -108,16 +108,17 @@ public class Barber implements Runnable {
                 }
 
                 // 4. Conclusao do atendimento e liberacao da thread do cliente
-                client.completeAttendance();
-                chair.release();
                 clientsServed.incrementAndGet();
+                chair.release();
+                client.completeAttendance();
                 System.out.println("[" + name + "] CONCLUSAO: Atendimento completo de " + client.getName() + " finalizado.");
 
             } catch (InterruptedException e) {
                 System.out.println("[" + name + "] AVISO: Barbeiro interrompido durante atendimento de " + client.getName() + ".");
                 // Garante que o cliente nao fique travado em caso de interrupcao
-                client.completeAttendance();
+                clientsServed.incrementAndGet();
                 chair.release();
+                client.completeAttendance();
                 Thread.currentThread().interrupt();
                 break;
             }

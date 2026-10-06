@@ -74,15 +74,15 @@ Termos usados neste projeto e nas discussões de arquitetura, para todo mundo do
 
 ## 3. Requisitos Funcionais
 
-- [ ] 3 cadeiras de barbeiro.
-- [ ] 3 barbeiros implementados como threads trabalhadoras.
-- [ ] Sala de espera com sofá de 4 lugares.
-- [ ] Capacidade total do recinto rigorosamente igual a 20 clientes.
+- [x] 3 cadeiras de barbeiro (`BarberChair.java`).
+- [x] 3 barbeiros implementados como threads trabalhadoras (`Barber.java` / `Barbeiro.java`).
+- [x] Sala de espera com sofá de 4 lugares (`WaitingRoom.java`).
+- [ ] Capacidade total do recinto rigorosamente igual a 20 clientes (Frente de Integração).
 - [ ] Nenhum cliente entra se a capacidade máxima estiver satisfeita.
-- [ ] Cliente senta no sofá se houver vaga; caso contrário, espera em pé.
-- [ ] Ao liberar um barbeiro: chama o cliente há mais tempo no sofá **e** promove o cliente há mais tempo em pé para o lugar vago no sofá (FIFO em dois níveis).
-- [ ] Qualquer barbeiro pode receber pagamento, mas apenas um cliente paga por vez (POS única, exclusão mútua serializada).
-- [ ] Barbeiros dividem tempo entre: cortar cabelo, receber pagamento e dormir cooperativamente enquanto aguardam clientes (sem consumir ciclos de CPU nesse período).
+- [x] Cliente senta no sofá se houver vaga; caso contrário, espera em pé.
+- [x] Ao liberar um barbeiro: chama o cliente há mais tempo no sofá **e** promove o cliente há mais tempo em pé para o lugar vago no sofá (FIFO em dois níveis).
+- [x] Qualquer barbeiro pode receber pagamento, mas apenas um cliente paga por vez (POS única, exclusão mútua serializada via `CaixaPOS.java`).
+- [x] Barbeiros dividem tempo entre: cortar cabelo, receber pagamento e dormir cooperativamente enquanto aguardam clientes (sem consumir ciclos de CPU nesse período).
 
 ---
 

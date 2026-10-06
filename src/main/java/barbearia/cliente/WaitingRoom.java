@@ -21,6 +21,7 @@ public class WaitingRoom{
       standingClients.offer(client);
       System.out.println(client.getName() + " is standing in the waiting room.");
     } 
+    this.notifyAll(); // Notifica barbeiros que podem estar aguardando clientes
 
     while(!client.isTheNext()){
       try {
@@ -58,6 +59,22 @@ public class WaitingRoom{
   public synchronized void printWaitingRoomStatus() {
     System.out.println("Seated clients: " + this.seatedClients);
     System.out.println("Standing clients: " + this.standingClients);
+  }
+
+  public synchronized boolean isEmpty() {
+    return seatedClients.isEmpty() && standingClients.isEmpty();
+  }
+
+  public synchronized int getSeatedCount() {
+    return seatedClients.size();
+  }
+
+  public synchronized int getStandingCount() {
+    return standingClients.size();
+  }
+
+  public synchronized int getTotalWaiting() {
+    return seatedClients.size() + standingClients.size();
   }
 
   private synchronized boolean isSeatedClientsFull() {

@@ -75,7 +75,7 @@ Termos usados neste projeto e nas discussões de arquitetura, para todo mundo do
 ## 3. Requisitos Funcionais
 
 - [x] 3 cadeiras de barbeiro (`BarberChair.java`).
-- [x] 3 barbeiros implementados como threads trabalhadoras (`Barber.java` / `Barbeiro.java`).
+- [x] 3 barbeiros implementados como threads trabalhadoras (`Barber.java`).
 - [x] Sala de espera com sofá de 4 lugares (`WaitingRoom.java`).
 - [ ] Capacidade total do recinto rigorosamente igual a 20 clientes (Frente de Integração).
 - [ ] Nenhum cliente entra se a capacidade máxima estiver satisfeita.
@@ -103,7 +103,7 @@ O projeto é dividido em três frentes de trabalho, cada uma responsável por um
 
 ### 5.1 Barbeiro
 
-**Responsável por:** `Barbeiro.java`
+**Responsável por:** `Barber.java`, `BarberChair.java`, `BarberState.java`
 
 - Implementa `Runnable`.
 - Ciclo de vida da thread: dormir (bloqueio real, sem busy-wait) enquanto não há cliente para atender; acordar quando chamado.
@@ -115,10 +115,10 @@ O projeto é dividido em três frentes de trabalho, cada uma responsável por um
 
 ### 5.2 Cliente e Espera
 
-**Responsável por:** `Cliente.java`, `SalaDeEspera.java`
+**Responsável por:** `Client.java`, `WaitingRoom.java`
 
-- `Cliente` implementa `Runnable`: tenta entrar na barbearia (respeitando a capacidade total, controlada via recurso da Integração), aguarda em pé ou no sofá, e sai após o pagamento.
-- `SalaDeEspera` encapsula:
+- `Client` implementa `Runnable`: tenta entrar na barbearia (respeitando a capacidade total, controlada via recurso da Integração), aguarda em pé ou no sofá, e sai após o pagamento.
+- `WaitingRoom` encapsula:
   - A fila em pé (FIFO).
   - O sofá (4 lugares, FIFO estrito).
   - A lógica de promoção em pé → sofá quando uma vaga é liberada.
@@ -128,13 +128,13 @@ O projeto é dividido em três frentes de trabalho, cada uma responsável por um
 
 **Responsável por:** `CaixaPOS.java`, mecanismos de sinalização sofá↔barbeiro, controle de capacidade total, `Logger`/sistema de auditoria, `Main.java`.
 
-- **`CaixaPOS`**: mutex/lock garantindo que só um cliente pague por vez, usado tanto por `Cliente` quanto por `Barbeiro`.
+- **`CaixaPOS`**: mutex/lock garantindo que só um cliente pague por vez, usado tanto por `Client` quanto por `Barber`.
 - **Sinalização sofá ↔ barbeiro**: mecanismo (ex.: `Semaphore` com `fairness = true`, ou `Lock` + `Condition`) que evita lost wake-up entre o barbeiro que fica livre e o cliente que está no sofá.
 - **Capacidade total (20)**: tipicamente um `Semaphore(20, fair = true)` compartilhado, adquirido na entrada e liberado na saída do cliente.
 - **Logger**: sistema de logs cronometrados e thread-safe, no formato padronizado (ver seção 7).
 - **`Main`**: inicializa e sobe as threads de barbeiros e clientes, configura os cenários de execução (afinidade de CPU) e coordena o encerramento da simulação.
 
-> Antes de codar, as três frentes devem combinar as **assinaturas das classes/interfaces compartilhadas** (`CaixaPOS`, `SalaDeEspera`, o semáforo de capacidade) para que o desenvolvimento avance em paralelo sem bloqueios entre os integrantes.
+> Antes de codar, as três frentes devem combinar as **assinaturas das classes/interfaces compartilhadas** (`CaixaPOS`, `WaitingRoom`, o semáforo de capacidade) para que o desenvolvimento avance em paralelo sem bloqueios entre os integrantes.
 
 ---
 
@@ -146,10 +146,10 @@ barbearia/
 │   ├── main/java/barbearia/
 │   │   ├── Main.java
 │   │   ├── barbeiro/
-│   │   │   └── Barbeiro.java
+│   │   │   └── Barber.java
 │   │   ├── cliente/
-│   │   │   ├── Cliente.java
-│   │   │   └── SalaDeEspera.java
+│   │   │   ├── Client.java
+│   │   │   └── WaitingRoom.java
 │   │   └── integracao/
 │   │       ├── CaixaPOS.java
 │   │       └── Logger.java

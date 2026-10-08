@@ -3,7 +3,7 @@ package barbearia.cliente;
 public class Client implements Runnable {
     private final String name;
     private final WaitingRoom waitingRoom;
-    private boolean iAmNext = false; // Indica se este cliente é o próximo a ser atendido
+    private volatile boolean iAmNext = false; // Indica se este cliente é o próximo a ser atendido
     private boolean completedAttendance = false; // Indica se este cliente completou o atendimento
     public Client(String name, WaitingRoom waitingRoom) {
         super();

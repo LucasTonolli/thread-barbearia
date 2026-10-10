@@ -1,8 +1,6 @@
 package barbearia.barbeiro;
 
-/**
- * Estados do ciclo de vida de uma thread de Barbeiro.
- */
+/** Estados do ciclo de vida de um barbeiro. */
 public enum BarberState {
     SLEEPING("DORMINDO"),
     CALLING_CLIENT("CHAMANDO_CLIENTE"),

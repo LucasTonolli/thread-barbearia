@@ -2,15 +2,12 @@ package barbearia.barbeiro;
 
 import barbearia.cliente.Client;
 
-/**
- * Representa uma das 3 cadeiras de atendimento da barbearia.
- * Cada cadeira e associada a um barbeiro especifico e controla a presenca do cliente.
- */
+/** Representa uma das tres cadeiras de atendimento. */
 public class BarberChair {
 
     private final int chairId;
     private final String barberName;
-    private volatile Client currentClient = null;
+    private Client currentClient;
 
     public BarberChair(int chairId, String barberName) {
         this.chairId = chairId;
@@ -18,18 +15,20 @@ public class BarberChair {
     }
 
     public synchronized void occupy(Client client) {
-        if (this.currentClient != null) {
-            throw new IllegalStateException("Cadeira " + chairId + " ja esta ocupada por " + this.currentClient.getName());
+        if (currentClient != null) {
+            throw new IllegalStateException(
+                    "Cadeira " + chairId + " ja esta ocupada por " + currentClient.getName()
+            );
         }
-        this.currentClient = client;
+        currentClient = client;
     }
 
     public synchronized void release() {
-        this.currentClient = null;
+        currentClient = null;
     }
 
     public synchronized boolean isOccupied() {
-        return this.currentClient != null;
+        return currentClient != null;
     }
 
     public synchronized Client getCurrentClient() {
@@ -45,7 +44,8 @@ public class BarberChair {
     }
 
     @Override
-    public String toString() {
-        return "Cadeira " + chairId + " (" + barberName + "): " + (isOccupied() ? "Ocupada por " + currentClient.getName() : "Livre");
+    public synchronized String toString() {
+        return "Cadeira " + chairId + " (" + barberName + "): "
+                + (currentClient == null ? "Livre" : "Ocupada por " + currentClient.getName());
     }
 }

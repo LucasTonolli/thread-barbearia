@@ -1,88 +1,137 @@
 package barbearia.cliente;
+
+import barbearia.integracao.Logger;
+
 import java.util.ArrayDeque;
 import java.util.Queue;
 
-public class WaitingRoom{
-  private final Queue<Client> standingClients = new ArrayDeque<>();
-  private final Queue<Client> seatedClients = new ArrayDeque<>();
-  // Máximo é 20 clientes , porém 3 estão sendo atendidos, então 17 clientes podem estar na sala de espera  
-  private static final int MAX_SEATED_CLIENTS = 4;
-  private static final int MAX_STANDING_CLIENTS = 13; 
+/**
+ * Sala de espera com dois niveis FIFO:
+ *  - sofa: 4 lugares;
+ *  - fila em pe: 13 lugares.
+ */
+public class WaitingRoom {
 
-  public synchronized boolean enter(Client client){
-    if(this.isSeatedClientsFull() && this.isStandingClientsFull()){
-      return false;
-    }
+    private final Queue<Client> standingClients = new ArrayDeque<>();
+    private final Queue<Client> seatedClients = new ArrayDeque<>();
 
-    if (!this.isSeatedClientsFull()) {  
-      seatedClients.offer(client);
-      System.out.println(client.getName() + " is seated in the waiting room.");  
-    } else  {
-      standingClients.offer(client);
-      System.out.println(client.getName() + " is standing in the waiting room.");
-    } 
-    this.notifyAll(); // Notifica barbeiros que podem estar aguardando clientes
+    private static final int MAX_SEATED_CLIENTS = 4;
+    private static final int MAX_STANDING_CLIENTS = 13;
 
-    while(!client.isTheNext()){
-      try {
-        this.wait();
-      } catch (InterruptedException e) {
-        if (!seatedClients.remove(client)) {
-            standingClients.remove(client);
+    private int rejectedCount = 0;
+
+    /**
+     * Coloca o cliente no sofa ou na fila em pe e bloqueia sua thread
+     * ate que um barbeiro o escolha para atendimento.
+     */
+    public synchronized boolean enter(Client client) {
+        if (isSeatedClientsFull() && isStandingClientsFull()) {
+            rejectedCount++;
+            Logger.log("DESISTENCIA", client.getName() + " encontrou a sala de espera fisicamente cheia");
+            return false;
         }
-        System.out.println("Client left before being served: " + e.getMessage());
-        return false;
-      }
+
+        if (!isSeatedClientsFull()) {
+            seatedClients.offer(client);
+            Logger.log(
+                    "ESPERA",
+                    client.getName() + " sentou no sofa (posicao " + seatedClients.size() + "/" + MAX_SEATED_CLIENTS + ")"
+            );
+        } else {
+            standingClients.offer(client);
+            Logger.log(
+                    "ESPERA",
+                    client.getName() + " aguardando em pe (posicao " + standingClients.size() + "/" + MAX_STANDING_CLIENTS + ")"
+            );
+        }
+
+        // Acorda barbeiros que estejam dormindo no monitor da sala.
+        notifyAll();
+
+        while (!client.isTheNext()) {
+            try {
+                wait();
+            } catch (InterruptedException e) {
+                boolean wasSeated = seatedClients.remove(client);
+                standingClients.remove(client);
+
+                if (wasSeated) {
+                    promoteStandingClientIfPossible();
+                }
+
+                notifyAll();
+                Thread.currentThread().interrupt();
+                Logger.log("INTERRUPCAO", client.getName() + " deixou a fila antes do atendimento");
+                return false;
+            }
+        }
+
+        return true;
     }
-    return true;
-  }
 
-  public synchronized Client getNext() {
-    if (this.seatedClients.isEmpty()) {
-      System.out.println("No seated clients to serve.");
-      return null;
+    /**
+     * Retira o cliente mais antigo do sofa e promove o mais antigo da fila em pe.
+     */
+    public synchronized Client getNext() {
+        if (seatedClients.isEmpty()) {
+            return null;
+        }
+
+        Client client = seatedClients.poll();
+        Client promoted = promoteStandingClientIfPossible();
+
+        client.iAmTheNext();
+
+        Logger.log("CHAMADA", client.getName() + " foi retirado do sofa para atendimento");
+        if (promoted != null) {
+            Logger.log("PROMOCAO", promoted.getName() + " saiu da fila em pe e ocupou o sofa");
+        }
+
+        // Todos acordam, mas apenas o cliente marcado por iAmTheNext() prossegue.
+        notifyAll();
+        return client;
     }
-    Client client = seatedClients.poll();
-    System.out.println(client.getName() + " is being served.");
-    if (this.standingClients.isEmpty()) {
-      System.out.println("No standing clients to seat.");
-    } else {
-      this.seatedClients.offer(this.standingClients.poll());
-      System.out.println("A standing client has been seated.");
-      // Notifica o cliente que está sendo servido
+
+    private Client promoteStandingClientIfPossible() {
+        if (standingClients.isEmpty() || isSeatedClientsFull()) {
+            return null;
+        }
+
+        Client promoted = standingClients.poll();
+        seatedClients.offer(promoted);
+        return promoted;
     }
-    client.iAmTheNext(); // Marca o cliente como o próximo a ser atendido
-    this.notifyAll(); 
-    return client;
-  }
 
-  public synchronized void printWaitingRoomStatus() {
-    System.out.println("Seated clients: " + this.seatedClients);
-    System.out.println("Standing clients: " + this.standingClients);
-  }
+    public synchronized void printWaitingRoomStatus() {
+        System.out.println("Seated clients: " + seatedClients);
+        System.out.println("Standing clients: " + standingClients);
+    }
 
-  public synchronized boolean isEmpty() {
-    return seatedClients.isEmpty() && standingClients.isEmpty();
-  }
+    public synchronized boolean isEmpty() {
+        return seatedClients.isEmpty() && standingClients.isEmpty();
+    }
 
-  public synchronized int getSeatedCount() {
-    return seatedClients.size();
-  }
+    public synchronized int getSeatedCount() {
+        return seatedClients.size();
+    }
 
-  public synchronized int getStandingCount() {
-    return standingClients.size();
-  }
+    public synchronized int getStandingCount() {
+        return standingClients.size();
+    }
 
-  public synchronized int getTotalWaiting() {
-    return seatedClients.size() + standingClients.size();
-  }
+    public synchronized int getTotalWaiting() {
+        return seatedClients.size() + standingClients.size();
+    }
 
-  private synchronized boolean isSeatedClientsFull() {
-    return seatedClients.size() >= MAX_SEATED_CLIENTS;
-  }
+    public synchronized int getRejectedCount() {
+        return rejectedCount;
+    }
 
-  private synchronized boolean isStandingClientsFull() {
-    return standingClients.size() >= MAX_STANDING_CLIENTS;
-  } 
+    private boolean isSeatedClientsFull() {
+        return seatedClients.size() >= MAX_SEATED_CLIENTS;
+    }
 
+    private boolean isStandingClientsFull() {
+        return standingClients.size() >= MAX_STANDING_CLIENTS;
+    }
 }

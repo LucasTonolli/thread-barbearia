@@ -4,7 +4,7 @@ import barbearia.barbeiro.Barber;
 import barbearia.barbeiro.BarberChair;
 import barbearia.cliente.Client;
 import barbearia.cliente.WaitingRoom;
-import barbearia.integracao.CaixaPOS;
+import barbearia.integracao.PosTerminal;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -51,7 +51,7 @@ public class BarberStressTest {
 
     private static boolean runStressRound(int round) throws InterruptedException {
         WaitingRoom room = new WaitingRoom();
-        CaixaPOS pos = new CaixaPOS();
+        PosTerminal pos = new PosTerminal();
 
         AtomicInteger exceptionsCount = new AtomicInteger(0);
         AtomicBoolean deadlockDetected = new AtomicBoolean(false);

@@ -7,7 +7,7 @@ import java.util.concurrent.locks.ReentrantLock;
  * Representa a unica maquina POS compartilhada pelos tres barbeiros.
  * O lock justo evita que um barbeiro fique indefinidamente sem acesso ao recurso.
  */
-public class CaixaPOS {
+public class PosTerminal {
 
     private final ReentrantLock lock = new ReentrantLock(true);
     private final AtomicInteger completedTransactions = new AtomicInteger(0);

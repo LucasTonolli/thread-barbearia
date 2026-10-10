@@ -2,8 +2,8 @@ package barbearia.barbeiro;
 
 import barbearia.cliente.Client;
 import barbearia.cliente.WaitingRoom;
-import barbearia.integracao.CaixaPOS;
-import barbearia.integracao.Logger;
+import barbearia.integracao.PosTerminal;
+import barbearia.integracao.AuditLogger;
 
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -20,7 +20,7 @@ public class Barber implements Runnable {
     private final String name;
     private final BarberChair chair;
     private final WaitingRoom waitingRoom;
-    private final CaixaPOS pos;
+    private final PosTerminal pos;
 
     private final long cutDurationMs;
     private final long paymentDurationMs;
@@ -38,7 +38,7 @@ public class Barber implements Runnable {
             String name,
             BarberChair chair,
             WaitingRoom waitingRoom,
-            CaixaPOS pos,
+            PosTerminal pos,
             long cutDurationMs,
             long paymentDurationMs
     ) {
@@ -51,13 +51,13 @@ public class Barber implements Runnable {
         this.paymentDurationMs = paymentDurationMs;
     }
 
-    public Barber(int id, String name, WaitingRoom waitingRoom, CaixaPOS pos) {
+    public Barber(int id, String name, WaitingRoom waitingRoom, PosTerminal pos) {
         this(id, name, new BarberChair(id, name), waitingRoom, pos, 30L, 15L);
     }
 
     @Override
     public void run() {
-        Logger.log("INICIO", name + " pronto para o expediente na Cadeira " + chair.getChairId());
+        AuditLogger.log("INICIO", name + " pronto para o expediente na Cadeira " + chair.getChairId());
 
         while (running) {
             Client client = waitForNextClient();
@@ -70,7 +70,7 @@ public class Barber implements Runnable {
         }
 
         state = BarberState.FINISHED;
-        Logger.log("FINALIZADO", name + " encerrou o expediente. Atendidos: " + clientsServed.get());
+        AuditLogger.log("FINALIZADO", name + " encerrou o expediente. Atendidos: " + clientsServed.get());
     }
 
     private Client waitForNextClient() {
@@ -106,7 +106,7 @@ public class Barber implements Runnable {
             state = BarberState.CALLING_CLIENT;
             chair.occupy(client);
             chairOccupied = true;
-            Logger.log(
+            AuditLogger.log(
                     "ATENDIMENTO",
                     name + " chamou " + client.getName() + " para a Cadeira " + chair.getChairId()
             );
@@ -116,32 +116,32 @@ public class Barber implements Runnable {
                 Thread.sleep(cutDurationMs);
             }
             totalCuttingTimeMs.addAndGet(cutDurationMs);
-            Logger.log("CORTE_CONCLUIDO", name + " terminou o corte de " + client.getName());
+            AuditLogger.log("CORTE_CONCLUIDO", name + " terminou o corte de " + client.getName());
 
             state = BarberState.WAITING_POS;
-            Logger.log("PAGAMENTO", client.getName() + " aguardando a unica maquina POS");
+            AuditLogger.log("PAGAMENTO", client.getName() + " aguardando a unica maquina POS");
             pos.acquire(name, client.getName());
             try {
                 state = BarberState.RECEIVING_PAYMENT;
-                Logger.log("PAGAMENTO", name + " iniciou o pagamento de " + client.getName());
+                AuditLogger.log("PAGAMENTO", name + " iniciou o pagamento de " + client.getName());
 
                 if (paymentDurationMs > 0) {
                     Thread.sleep(paymentDurationMs);
                 }
                 totalPaymentTimeMs.addAndGet(paymentDurationMs);
 
-                Logger.log("PAGAMENTO_CONCLUIDO", "Pagamento de " + client.getName() + " concluido");
+                AuditLogger.log("PAGAMENTO_CONCLUIDO", "Pagamento de " + client.getName() + " concluido");
             } finally {
                 pos.release(name, client.getName());
             }
 
             clientsServed.incrementAndGet();
             client.completeAttendance();
-            Logger.log("CONCLUSAO", "Atendimento de " + client.getName() + " finalizado por " + name);
+            AuditLogger.log("CONCLUSAO", "Atendimento de " + client.getName() + " finalizado por " + name);
 
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            Logger.log("INTERRUPCAO", name + " foi interrompido durante o atendimento de " + client.getName());
+            AuditLogger.log("INTERRUPCAO", name + " foi interrompido durante o atendimento de " + client.getName());
 
             // Evita que a thread do cliente permaneça bloqueada indefinidamente.
             client.completeAttendance();

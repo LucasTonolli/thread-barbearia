@@ -1,6 +1,6 @@
 package barbearia.cliente;
 
-import barbearia.integracao.Logger;
+import barbearia.integracao.AuditLogger;
 
 import java.util.ArrayDeque;
 import java.util.Queue;
@@ -27,19 +27,19 @@ public class WaitingRoom {
     public synchronized boolean enter(Client client) {
         if (isSeatedClientsFull() && isStandingClientsFull()) {
             rejectedCount++;
-            Logger.log("DESISTENCIA", client.getName() + " encontrou a sala de espera fisicamente cheia");
+            AuditLogger.log("DESISTENCIA", client.getName() + " encontrou a sala de espera fisicamente cheia");
             return false;
         }
 
         if (!isSeatedClientsFull()) {
             seatedClients.offer(client);
-            Logger.log(
+            AuditLogger.log(
                     "ESPERA",
                     client.getName() + " sentou no sofa (posicao " + seatedClients.size() + "/" + MAX_SEATED_CLIENTS + ")"
             );
         } else {
             standingClients.offer(client);
-            Logger.log(
+            AuditLogger.log(
                     "ESPERA",
                     client.getName() + " aguardando em pe (posicao " + standingClients.size() + "/" + MAX_STANDING_CLIENTS + ")"
             );
@@ -61,7 +61,7 @@ public class WaitingRoom {
 
                 notifyAll();
                 Thread.currentThread().interrupt();
-                Logger.log("INTERRUPCAO", client.getName() + " deixou a fila antes do atendimento");
+                AuditLogger.log("INTERRUPCAO", client.getName() + " deixou a fila antes do atendimento");
                 return false;
             }
         }
@@ -82,9 +82,9 @@ public class WaitingRoom {
 
         client.iAmTheNext();
 
-        Logger.log("CHAMADA", client.getName() + " foi retirado do sofa para atendimento");
+        AuditLogger.log("CHAMADA", client.getName() + " foi retirado do sofa para atendimento");
         if (promoted != null) {
-            Logger.log("PROMOCAO", promoted.getName() + " saiu da fila em pe e ocupou o sofa");
+            AuditLogger.log("PROMOCAO", promoted.getName() + " saiu da fila em pe e ocupou o sofa");
         }
 
         // Todos acordam, mas apenas o cliente marcado por iAmTheNext() prossegue.

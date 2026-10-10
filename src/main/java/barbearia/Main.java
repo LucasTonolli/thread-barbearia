@@ -1,11 +1,11 @@
 package barbearia;
 
-import barbearia.barbeiro.Barbeiro;
+import barbearia.barbeiro.Barber;
 import barbearia.cliente.Client;
 import barbearia.cliente.WaitingRoom;
-import barbearia.integracao.CaixaPOS;
-import barbearia.integracao.CapacityControl;
-import barbearia.integracao.Logger;
+import barbearia.integracao.PosTerminal;
+import barbearia.integracao.Capacity;
+import barbearia.integracao.AuditLogger;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -15,35 +15,35 @@ import java.util.List;
  */
 public class Main {
 
-    private static final int NUMERO_DE_CLIENTES = 50;
-    private static final int CAPACIDADE_MAXIMA = 20;
+    private static final int CLIENT_COUNT = 50;
+    private static final int MAX_CAPACITY = 20;
 
     public static void main(String[] args) {
-        Logger.reset();
+        AuditLogger.reset();
 
         System.out.println("======================================");
         System.out.println("   SIMULACAO DA BARBEARIA DE HILZER");
         System.out.println("======================================");
 
         WaitingRoom waitingRoom = new WaitingRoom();
-        CaixaPOS pos = new CaixaPOS();
-        CapacityControl capacity = new CapacityControl(CAPACIDADE_MAXIMA);
+        PosTerminal pos = new PosTerminal();
+        Capacity capacity = new Capacity(MAX_CAPACITY);
 
-        Barbeiro barbeiro1 = new Barbeiro(1, "Barbeiro-01", waitingRoom, pos);
-        Barbeiro barbeiro2 = new Barbeiro(2, "Barbeiro-02", waitingRoom, pos);
-        Barbeiro barbeiro3 = new Barbeiro(3, "Barbeiro-03", waitingRoom, pos);
+        Barber barber1 = new Barber(1, "Barbeiro-01", waitingRoom, pos);
+        Barber barber2 = new Barber(2, "Barbeiro-02", waitingRoom, pos);
+        Barber barber3 = new Barber(3, "Barbeiro-03", waitingRoom, pos);
 
-        Thread threadBarbeiro1 = new Thread(barbeiro1, "Thread-Barbeiro-01");
-        Thread threadBarbeiro2 = new Thread(barbeiro2, "Thread-Barbeiro-02");
-        Thread threadBarbeiro3 = new Thread(barbeiro3, "Thread-Barbeiro-03");
+        Thread barberThread1 = new Thread(barber1, "Thread-Barbeiro-01");
+        Thread barberThread2 = new Thread(barber2, "Thread-Barbeiro-02");
+        Thread barberThread3 = new Thread(barber3, "Thread-Barbeiro-03");
 
-        threadBarbeiro1.start();
-        threadBarbeiro2.start();
-        threadBarbeiro3.start();
+        barberThread1.start();
+        barberThread2.start();
+        barberThread3.start();
 
         List<Thread> clientThreads = new ArrayList<>();
 
-        for (int i = 1; i <= NUMERO_DE_CLIENTES; i++) {
+        for (int i = 1; i <= CLIENT_COUNT; i++) {
             String clientName = "Cliente-" + String.format("%02d", i);
             Client client = new Client(clientName, waitingRoom);
 
@@ -65,19 +65,19 @@ public class Main {
 
         joinAll(clientThreads);
 
-        barbeiro1.stop();
-        barbeiro2.stop();
-        barbeiro3.stop();
+        barber1.stop();
+        barber2.stop();
+        barber3.stop();
 
-        joinThread(threadBarbeiro1);
-        joinThread(threadBarbeiro2);
-        joinThread(threadBarbeiro3);
+        joinThread(barberThread1);
+        joinThread(barberThread2);
+        joinThread(barberThread3);
 
-        int totalServed = barbeiro1.getClientsServed()
-                + barbeiro2.getClientsServed()
-                + barbeiro3.getClientsServed();
+        int totalServed = barber1.getClientsServed()
+                + barber2.getClientsServed()
+                + barber3.getClientsServed();
 
-        printSummary(waitingRoom, pos, capacity, barbeiro1, barbeiro2, barbeiro3, totalServed);
+        printSummary(waitingRoom, pos, capacity, barber1, barber2, barber3, totalServed);
         validateInvariants(waitingRoom, pos, capacity, totalServed);
     }
 
@@ -98,18 +98,18 @@ public class Main {
 
     private static void printSummary(
             WaitingRoom waitingRoom,
-            CaixaPOS pos,
-            CapacityControl capacity,
-            Barbeiro b1,
-            Barbeiro b2,
-            Barbeiro b3,
+            PosTerminal pos,
+            Capacity capacity,
+            Barber b1,
+            Barber b2,
+            Barber b3,
             int totalServed
     ) {
         System.out.println();
         System.out.println("======================================");
         System.out.println("          RESUMO DA SIMULACAO");
         System.out.println("======================================");
-        System.out.println("Clientes tentados: " + NUMERO_DE_CLIENTES);
+        System.out.println("Clientes tentados: " + CLIENT_COUNT);
         System.out.println("Entradas aceitas pelo controle de capacidade: " + capacity.getAdmittedCount());
         System.out.println("Desistencias por lotacao total: " + capacity.getRejectedCount());
         System.out.println("Desistencias por sala de espera cheia: " + waitingRoom.getRejectedCount());
@@ -119,7 +119,7 @@ public class Main {
         System.out.println("  - " + b3.getName() + ": " + b3.getClientsServed());
         System.out.println("Transacoes concluidas na POS: " + pos.getCompletedTransactions());
         System.out.println("Maior concorrencia observada na POS: " + pos.getMaxConcurrentTransactions());
-        System.out.println("Lotacao maxima observada: " + capacity.getMaxObserved() + "/" + CAPACIDADE_MAXIMA);
+        System.out.println("Lotacao maxima observada: " + capacity.getMaxObserved() + "/" + MAX_CAPACITY);
         System.out.println("Vagas disponiveis ao final: " + capacity.availablePermits());
         System.out.println("Sala de espera vazia ao final: " + waitingRoom.isEmpty());
         System.out.println("======================================");
@@ -127,15 +127,15 @@ public class Main {
 
     private static void validateInvariants(
             WaitingRoom waitingRoom,
-            CaixaPOS pos,
-            CapacityControl capacity,
+            PosTerminal pos,
+            Capacity capacity,
             int totalServed
     ) {
-        if (capacity.getMaxObserved() > CAPACIDADE_MAXIMA) {
+        if (capacity.getMaxObserved() > MAX_CAPACITY) {
             throw new IllegalStateException("A capacidade maxima foi ultrapassada.");
         }
 
-        if (capacity.availablePermits() != CAPACIDADE_MAXIMA || capacity.getCurrentOccupancy() != 0) {
+        if (capacity.availablePermits() != MAX_CAPACITY || capacity.getCurrentOccupancy() != 0) {
             throw new IllegalStateException("Nem todas as vagas foram devolvidas ao final da simulacao.");
         }
 

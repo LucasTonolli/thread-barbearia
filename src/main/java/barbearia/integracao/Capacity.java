@@ -9,7 +9,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * A regra do trabalho determina que, se as 20 vagas estiverem ocupadas,
  * o cliente nao deve aguardar uma vaga: ele desiste imediatamente.
  */
-public class CapacityControl {
+public class Capacity {
 
     private final int maxCapacity;
     private final Semaphore permits;
@@ -18,7 +18,7 @@ public class CapacityControl {
     private final AtomicInteger admittedCount = new AtomicInteger(0);
     private final AtomicInteger rejectedCount = new AtomicInteger(0);
 
-    public CapacityControl(int maxCapacity) {
+    public Capacity(int maxCapacity) {
         if (maxCapacity <= 0) {
             throw new IllegalArgumentException("A capacidade maxima deve ser positiva.");
         }
@@ -32,7 +32,7 @@ public class CapacityControl {
     public boolean tryEnter(String clientName) {
         if (!permits.tryAcquire()) {
             rejectedCount.incrementAndGet();
-            Logger.log(
+            AuditLogger.log(
                     "DESISTENCIA",
                     clientName + " encontrou a barbearia lotada e nao entrou",
                     occupancy.get(),
@@ -45,7 +45,7 @@ public class CapacityControl {
         admittedCount.incrementAndGet();
         maxObserved.accumulateAndGet(current, Math::max);
 
-        Logger.log(
+        AuditLogger.log(
                 "CHEGADA",
                 clientName + " entrou na barbearia",
                 current,
@@ -64,14 +64,14 @@ public class CapacityControl {
         permits.release();
 
         if (served) {
-            Logger.log(
+            AuditLogger.log(
                     "SAIDA",
                     clientName + " concluiu o atendimento e saiu",
                     current,
                     maxCapacity
             );
         } else {
-            Logger.log(
+            AuditLogger.log(
                     "SAIDA_SEM_ATENDIMENTO",
                     clientName + " liberou a vaga sem concluir atendimento",
                     current,

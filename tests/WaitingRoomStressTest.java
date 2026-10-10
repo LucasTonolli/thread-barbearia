@@ -1,4 +1,7 @@
-package barbearia.cliente;
+package tests;
+
+import barbearia.cliente.Client;
+import barbearia.cliente.WaitingRoom;
 
 import java.util.ArrayList;
 import java.util.Collections;

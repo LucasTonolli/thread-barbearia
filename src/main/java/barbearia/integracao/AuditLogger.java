@@ -1,15 +1,15 @@
 package barbearia.integracao;
 
 /**
- * Logger simples e thread-safe para a simulacao.
+ * Logger de auditoria simples e thread-safe para a simulacao.
  * O timestamp e relativo ao inicio da execucao para facilitar a auditoria.
  */
-public final class Logger {
+public final class AuditLogger {
 
     private static long startNanos = System.nanoTime();
     private static volatile boolean enabled = true;
 
-    private Logger() {
+    private AuditLogger() {
     }
 
     public static synchronized void reset() {

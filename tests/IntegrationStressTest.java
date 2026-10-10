@@ -1,11 +1,11 @@
 package tests;
 
-import barbearia.barbeiro.Barbeiro;
+import barbearia.barbeiro.Barber;
 import barbearia.cliente.Client;
 import barbearia.cliente.WaitingRoom;
-import barbearia.integracao.CaixaPOS;
-import barbearia.integracao.CapacityControl;
-import barbearia.integracao.Logger;
+import barbearia.integracao.PosTerminal;
+import barbearia.integracao.Capacity;
+import barbearia.integracao.AuditLogger;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -21,7 +21,7 @@ public class IntegrationStressTest {
     private static final int CAPACITY = 20;
 
     public static void main(String[] args) throws Exception {
-        Logger.setEnabled(false);
+        AuditLogger.setEnabled(false);
 
         int failed = 0;
         for (int round = 1; round <= ROUNDS; round++) {
@@ -30,7 +30,7 @@ public class IntegrationStressTest {
             }
         }
 
-        Logger.setEnabled(true);
+        AuditLogger.setEnabled(true);
         System.out.println("Resultado: " + (ROUNDS - failed) + "/" + ROUNDS + " rodadas aprovadas.");
 
         if (failed > 0) {
@@ -40,12 +40,12 @@ public class IntegrationStressTest {
 
     private static boolean runRound(int round) throws Exception {
         WaitingRoom room = new WaitingRoom();
-        CaixaPOS pos = new CaixaPOS();
-        CapacityControl capacity = new CapacityControl(CAPACITY);
+        PosTerminal pos = new PosTerminal();
+        Capacity capacity = new Capacity(CAPACITY);
 
-        Barbeiro b1 = new Barbeiro(1, "B1", room, pos);
-        Barbeiro b2 = new Barbeiro(2, "B2", room, pos);
-        Barbeiro b3 = new Barbeiro(3, "B3", room, pos);
+        Barber b1 = new Barber(1, "B1", room, pos);
+        Barber b2 = new Barber(2, "B2", room, pos);
+        Barber b3 = new Barber(3, "B3", room, pos);
 
         Thread t1 = new Thread(b1, "B1");
         Thread t2 = new Thread(b2, "B2");

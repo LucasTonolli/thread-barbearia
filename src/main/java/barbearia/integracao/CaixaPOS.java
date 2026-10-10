@@ -1,47 +1,45 @@
 package barbearia.integracao;
 
-import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
- * Representa a maquina de cartao (POS) unica compartilhada por todos os barbeiros.
- * Garante exclusao mutua estrita (apenas um pagamento por vez na barbearia).
- * Utiliza ReentrantLock com politica de fairness para evitar starvation.
+ * Representa a unica maquina POS compartilhada pelos tres barbeiros.
+ * O lock justo evita que um barbeiro fique indefinidamente sem acesso ao recurso.
  */
 public class CaixaPOS {
 
-    private final ReentrantLock lock = new ReentrantLock(true); // Fairness ativado
+    private final ReentrantLock lock = new ReentrantLock(true);
     private final AtomicInteger completedTransactions = new AtomicInteger(0);
-    private volatile String currentBarber = null;
-    private volatile String currentClient = null;
+    private final AtomicInteger activeTransactions = new AtomicInteger(0);
+    private final AtomicInteger maxConcurrentTransactions = new AtomicInteger(0);
 
-    /**
-     * Adquire a posse da maquina POS para iniciar o pagamento.
-     * Bloqueia a thread ate que a maquina esteja livre.
-     */
+    private volatile String currentBarber;
+    private volatile String currentClient;
+
     public void acquire(String barberName, String clientName) throws InterruptedException {
         lock.lockInterruptibly();
-        this.currentBarber = barberName;
-        this.currentClient = clientName;
+        currentBarber = barberName;
+        currentClient = clientName;
+
+        int active = activeTransactions.incrementAndGet();
+        maxConcurrentTransactions.accumulateAndGet(active, Math::max);
     }
 
-    /**
-     * Libera a maquina POS apos a conclusao do pagamento.
-     */
     public void release(String barberName, String clientName) {
         if (!lock.isHeldByCurrentThread()) {
-            throw new IllegalMonitorStateException("Thread atual nao possui a posse da maquina POS.");
+            throw new IllegalMonitorStateException("A thread atual nao possui a maquina POS.");
         }
-        this.currentBarber = null;
-        this.currentClient = null;
-        this.completedTransactions.incrementAndGet();
+
+        completedTransactions.incrementAndGet();
+        activeTransactions.decrementAndGet();
+        currentBarber = null;
+        currentClient = null;
         lock.unlock();
     }
 
-    /**
-     * Metodo de conveniencia para processar o pagamento completo com simulacao de tempo.
-     */
-    public void processPayment(String barberName, String clientName, long paymentDurationMs) throws InterruptedException {
+    public void processPayment(String barberName, String clientName, long paymentDurationMs)
+            throws InterruptedException {
         acquire(barberName, clientName);
         try {
             if (paymentDurationMs > 0) {
@@ -70,5 +68,9 @@ public class CaixaPOS {
 
     public int getQueueLength() {
         return lock.getQueueLength();
+    }
+
+    public int getMaxConcurrentTransactions() {
+        return maxConcurrentTransactions.get();
     }
 }

@@ -4,12 +4,19 @@ import barbearia.cliente.WaitingRoom;
 import barbearia.integracao.CaixaPOS;
 
 /**
- * Alias em portugues para a classe Barber, mantendo compatibilidade direta
- * com os nomes sugeridos no README da disciplina.
+ * Alias em portugues para manter compatibilidade com o nome sugerido no README.
  */
 public class Barbeiro extends Barber {
 
-    public Barbeiro(int id, String name, BarberChair chair, WaitingRoom waitingRoom, CaixaPOS pos, long cutDurationMs, long paymentDurationMs) {
+    public Barbeiro(
+            int id,
+            String name,
+            BarberChair chair,
+            WaitingRoom waitingRoom,
+            CaixaPOS pos,
+            long cutDurationMs,
+            long paymentDurationMs
+    ) {
         super(id, name, chair, waitingRoom, pos, cutDurationMs, paymentDurationMs);
     }
 

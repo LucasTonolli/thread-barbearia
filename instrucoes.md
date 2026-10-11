@@ -1,117 +1,114 @@
 # Como usar `Client` e `WaitingRoom`
 
-> Documento de integração — escrito pra quem for usar essas duas classes de
-> fora (principalmente quem está implementando `Barbeiro`, e quem for montar
-> o `Main` final). Descreve o contrato público: o que cada método faz, quem
-> deveria chamar o quê, e — mais importante — **o que quebra se algum lado
-> não seguir o contrato**.
+> Documento de integração: o contrato público das duas classes da frente Cliente/Espera, quem deve chamar
+> o quê e **o que quebra se algum lado não seguir o contrato**. Reflete a base final (branch
+> `refactor/integracao-final`). Na simulação completa, quem monta tudo é a `Simulation`; este documento
+> serve para quem for usar as classes isoladamente (testes, extensões).
 
 ## Visão geral
 
-- **`WaitingRoom`** é um recurso compartilhado (não é thread). Guarda o sofá
-  (4 lugares) e a fila em pé (13 lugares), com toda a lógica de FIFO e
-  promoção. Ela é `synchronized` por dentro — quem usa não precisa se
-  preocupar com lock manualmente.
-- **`Client`** é uma thread (`Runnable`). Representa o ciclo de vida completo
-  de um cliente: chegar, esperar, ser chamado, ser atendido, terminar.
+- **`WaitingRoom`** é um recurso compartilhado (não é thread). Guarda o sofá (4 lugares) e a fila em pé
+  (13 lugares), com toda a lógica de FIFO e promoção, num **monitor único** (`synchronized`/`wait`/`notifyAll`).
+  Quem usa não precisa pegar lock manualmente.
+- **`Client`** é uma thread (`Runnable`) que representa o ciclo de vida completo de um cliente: reservar uma
+  vaga na lotação, esperar, ser chamado, ser atendido, devolver a vaga.
 
-Nenhuma das duas classes lida com capacidade total (20), POS, ou logging —
-isso é responsabilidade de outras frentes (Integração).
+A lotação total (20) é da `Capacity`, o pagamento é da `PosTerminal` (usada pelo `Barber`), e os logs são do
+`AuditLogger`. As três são injetadas pelo construtor.
 
 ---
 
 ## `WaitingRoom`
 
+### Construtores
+
+- `new WaitingRoom(AuditLogger logger)`: registra `ESPERA`, `ATENDIMENTO` e `PROMOÇÃO` nesse logger.
+- `new WaitingRoom()`: logger silencioso (testes).
+
 ### `boolean enter(Client client)`
 
-Chamado pelo próprio `Client` (dentro do seu `run()`, já encapsulado em
-`enterWaitingRoom()` — ver abaixo). **Essa chamada bloqueia a thread do
-cliente até ele ser chamado por um barbeiro**, ou até a sala estar cheia.
+Chamado pelo próprio `Client` (dentro de `run()`, via `enterWaitingRoom()`). **Bloqueia a thread do cliente
+até ele ser chamado por um barbeiro.**
 
-- Retorna `false` imediatamente se a sala estiver cheia (17 = 4 sofá + 13 em
-  pé) — o cliente não chegou a entrar, e a thread não bloqueia nesse caso.
-- Retorna `true` **depois** de o cliente ter sido chamado (ou seja, quando
-  esse método retorna `true`, o cliente já está livre do sofá/fila e pronto
-  pra ser atendido — não é preciso checar mais nada antes de prosseguir).
-- Internamente usa `wait()`/`notifyAll()` no monitor da própria
-  `WaitingRoom` — não chama `wait()` em `client` nem em nenhum outro objeto.
+- Retorna `false` imediatamente se a sala estiver cheia (17 = 4 + 13). Com a `Capacity` limitando a 20, isso
+  só acontece se houver cadeira vazia com a sala cheia (ver `CapacityVsRoomTest`).
+- Retorna `false` se a thread for interrompida **antes** de ser chamada: o cliente sai da fila e, se estava no
+  sofá, o primeiro em pé é promovido.
+- Retorna `true` quando o cliente foi chamado. Se a interrupção chegar **depois** de o barbeiro já tê-lo
+  chamado, ele também retorna `true` (o barbeiro já o atende) e a flag de interrupção fica ligada.
+- Usa `wait()`/`notifyAll()` no monitor da própria `WaitingRoom`.
 
-**Quem deveria chamar:** só o `Client`. O `Barbeiro` nunca chama `enter()`.
+**Quem chama:** só o `Client`.
 
-### `Client getNext()`
+### `Client getNext(String barberName, int chairId)` / `Client getNext()`
 
-Chamado pelo `Barbeiro` quando ele fica livre pra atender alguém.
+Chamado pelo `Barber` quando fica livre, sob o monitor da sala.
 
-- Retorna o cliente há mais tempo no sofá, já removido da fila.
-- Promove automaticamente o próximo da fila em pé pro lugar que abriu no
-  sofá (se houver alguém esperando em pé).
-- Retorna `null` se não houver ninguém sentado no sofá no momento.
-- Já chama `notifyAll()` internamente — isso é o que faz o `Client`
-  retornado acordar de dentro do `enter()`. **O barbeiro não precisa (e não
-  deveria) chamar `notify` em nada manualmente.**
+- Retira o cliente há mais tempo no sofá, promove o primeiro da fila em pé para a vaga e marca o cliente
+  chamado (`iAmTheNext`), tudo atomicamente; registra `ATENDIMENTO` (com o barbeiro e a cadeira) e
+  `PROMOÇÃO`. A versão sem argumentos não registra `ATENDIMENTO` (usada por testes que fazem papel de barbeiro).
+- Retorna `null` se o sofá estiver vazio.
+- Já chama `notifyAll()`. **O barbeiro não precisa (e não deve) chamar `notify` em nada.**
 
-**Quem deveria chamar:** só o `Barbeiro`.
+⚠️ **`getNext()` só libera o cliente da fila.** A thread do cliente continua bloqueada até
+`completeAttendance()` (ver abaixo).
 
-⚠️ **`getNext()` só libera o cliente da fila — não é o suficiente pra
-"destravar" a thread dele até o fim.** Ver seção seguinte.
+### Consultas
 
-### `void printWaitingRoomStatus()`
-
-Só para debug/log — imprime o conteúdo atual das duas filas. Não é
-thread-safe por acaso, é `synchronized` como os outros métodos.
+`isEmpty()`, `getSeatedCount()`, `getStandingCount()`, `getTotalWaiting()`, `getPeakSeated()`,
+`getPeakStanding()`, `getRejectedCount()` (recusas por sala cheia), `getInterruptedAfterCallCount()` e
+`describe()` (retrato das filas como texto; substitui o antigo `printWaitingRoomStatus()`, sem `println`).
 
 ---
 
 ## `Client`
 
-### Construtor: `new Client(String name, WaitingRoom waitingRoom)`
+### Construtores
 
-Recebe a `WaitingRoom` compartilhada (a mesma instância usada por todos os
-clientes e pelo barbeiro).
+- `new Client(name, waitingRoom, capacity, logger, metrics)`: o usado pela `Simulation`.
+- `new Client(name, waitingRoom, capacity, logger)`: métricas descartáveis.
+- `new Client(name, waitingRoom)`: para testes isolados da sala (lotação própria, logger silencioso).
 
 ### `void run()`
 
-Ciclo de vida completo da thread:
-
 ```
-1. enterWaitingRoom() — entra na sala, bloqueia até ser chamado (ou desiste, se a sala estiver cheia)
-2. Se não entrou: thread termina aqui.
-3. waitUntilAttended() — bloqueia até o atendimento (corte + pagamento) ser marcado como concluído
-4. thread termina
+1. capacity.tryEnter(nome): se lotado, registra "CHEGADA: Barbearia lotada (...). Desistiu." e termina.
+2. enterWaitingRoom(): bloqueia até ser chamado (ou desiste: sala cheia / interrompido).
+3. waitUntilAttended(): bloqueia até o barbeiro chamar completeAttendance().
+4. finally: capacity.leave(...) devolve a vaga e registra a SAÍDA (com o barbeiro, se atendido).
 ```
 
-### `boolean enterWaitingRoom()`
+### `void setAttendedBy(String barberName)` e `void completeAttendance()`
 
-Wrapper em volta de `waitingRoom.enter(this)`, com log simples. Retorna
-`true`/`false` conforme o cliente conseguiu ou não entrar.
-
-### `void completeAttendance()`
-
-**Método que o `Barbeiro` precisa chamar** depois de terminar o corte E o
-pagamento daquele cliente. Isso destrava a thread do `Client`, que está
-bloqueada em `waitUntilAttended()`.
+**Métodos que o `Barber` precisa chamar** depois do corte e do pagamento:
 
 ```java
-// dentro do Barbeiro, depois do corte e do pagamento:
-client.completeAttendance();
+client.setAttendedBy(name);     // só no sucesso: marca quem recebeu o pagamento
+...
+client.completeAttendance();    // SEMPRE, num finally: destrava a thread do cliente
 ```
 
-⚠️ **Se ninguém chamar esse método, a thread daquele `Client` fica bloqueada
-para sempre.** Não é um travamento passageiro — é permanente, porque
-`waitUntilAttended()` só sai do `while` quando essa flag vira `true`. Isso
-já aconteceu no nosso teste de estresse (ver `WaitingRoomStressTest.java`):
-sem essa chamada, o `join()` das threads nunca retorna.
+⚠️ **Se ninguém chamar `completeAttendance()`, a thread daquele `Client` fica bloqueada para sempre**, e a
+vaga na lotação nunca é devolvida. Por isso o `Barber.serve` o chama num `finally`, inclusive quando
+`chair.occupy`, `pos.acquire` ou `pos.release` lançam exceção.
 
 ### `void waitUntilAttended()`
 
-Chamado internamente pelo `run()`. Não precisa ser chamado de fora — está
-documentado aqui só pra deixar claro o que acontece por trás.
+Chamado internamente pelo `run()`. Depois de chamado, o cliente está na cadeira: uma interrupção nessa fase é
+guardada e restaurada no fim, mas não o faz sair antes de o barbeiro encerrar (senão a vaga seria devolvida
+com o corte em andamento).
 
 ### `boolean isTheNext()` / `void iAmTheNext()`
 
-Uso interno da `WaitingRoom` (dentro de `getNext()`) pra marcar/checar qual
-cliente foi chamado. Não deveria ser chamado por `Barbeiro` nem por `Main` —
-só existe como ponte entre `WaitingRoom.getNext()` e `WaitingRoom.enter()`.
+Ponte interna entre `WaitingRoom.getNext()` e `WaitingRoom.enter()`. Não devem ser chamados pelo `Barber`
+nem pelo `Main`.
+
+### Dados para métricas e testes
+
+`wasServed()`, `getAttendedBy()`, as ordens `getEnqueueOrder()`, `getStandingOrder()`, `getSofaOrder()`,
+`getCallOrder()` e os timestamps `get*Nanos()` (chegada, em pé, sofá, chamada, pedido de POS, posse da POS,
+fim do pagamento). As ordens e os tempos da sala são gravados sob o monitor da `WaitingRoom`; os do pagamento,
+pelo barbeiro que atende o cliente.
 
 ---
 
@@ -119,18 +116,15 @@ só existe como ponte entre `WaitingRoom.getNext()` e `WaitingRoom.enter()`.
 
 | Método | Quem chama | Quando |
 | --- | --- | --- |
-| `client.run()` (via `thread.start()`) | `Main` | Uma vez, ao criar cada cliente |
+| `client.run()` (via `thread.start()`) | `Simulation` | Uma vez, ao criar cada cliente |
 | `waitingRoom.enter(client)` | `Client` (internamente) | Automático, dentro do `run()` |
-| `waitingRoom.getNext()` | `Barbeiro` | Sempre que o barbeiro fica livre |
-| `client.completeAttendance()` | `Barbeiro` | **Depois** do corte + pagamento daquele cliente específico |
-
-**A linha mais importante da tabela pra quem está implementando `Barbeiro`
-é a última** — sem essa chamada, o sistema todo trava silenciosamente (sem
-exception, sem log de erro — as threads simplesmente nunca terminam).
+| `waitingRoom.getNext(nome, cadeira)` | `Barber` | Sempre que o barbeiro fica livre, sob o monitor da sala |
+| `client.setAttendedBy(nome)` | `Barber` | Depois do pagamento, só se deu certo |
+| `client.completeAttendance()` | `Barber` | **Sempre**, num `finally`, ao encerrar o atendimento |
 
 ---
 
-## Exemplo mínimo de uso (fora de um `Main` de verdade — só ilustrativo)
+## Exemplo mínimo (fora da `Simulation`, só ilustrativo)
 
 ```java
 WaitingRoom waitingRoom = new WaitingRoom();
@@ -139,11 +133,15 @@ Client client = new Client("Cliente-01", waitingRoom);
 Thread clientThread = new Thread(client);
 clientThread.start();
 
-// ... em algum momento, do lado do Barbeiro:
-Client atendido = waitingRoom.getNext();
-if (atendido != null) {
-    // simular corte (Thread.sleep) e pagamento aqui
-    atendido.completeAttendance(); // sem isso, a thread do cliente nunca termina
+// ... do lado do barbeiro:
+Client called = waitingRoom.getNext();
+if (called != null) {
+    try {
+        // corte e pagamento (Thread.sleep) aqui
+        called.setAttendedBy("Barbeiro-01");
+    } finally {
+        called.completeAttendance(); // sem isso, a thread do cliente nunca termina
+    }
 }
 
 clientThread.join();
@@ -153,32 +151,12 @@ clientThread.join();
 
 ## Como testar
 
-O arquivo `WaitingRoomStressTest.java` sobe várias dezenas de clientes
-concorrentes, com um "barbeiro falso" chamando `getNext()` +
-`completeAttendance()` em loop, repetindo por 20 rodadas e verificando
-exceções e travamentos.
-
 ```bash
-javac -d out barbearia/cliente/*.java
-java -cp out barbearia.cliente.WaitingRoomStressTest
+scripts/run-tests.sh                              # todos os testes
+java -cp out tests.WaitingRoomManualTest          # casos da sala, um a um
+java -cp out tests.WaitingRoomStressTest          # 20 rodadas, 40 clientes, barbeiro falso
+java -cp out tests.FifoIntegrationTest            # FIFO controlado e concorrente
+java -cp out tests.RobustnessTest                 # interrupções antes/depois de ser chamado
 ```
 
-Resultado esperado: `0 de 20 rodadas tiveram algum problema`, sem o processo
-travar (se travar, o terminal simplesmente não retorna o prompt — sinal de
-que algum `Client` não foi liberado).
-
----
-
-## O que ainda NÃO está implementado nessas duas classes
-
-Pra quem for integrar, vale saber os limites atuais:
-
-- **Capacidade total (20)** não é controlada aqui — só os 17 lugares da
-  sala. Isso é responsabilidade da Integração (tipicamente um
-  `Semaphore(20)` chamado antes de `enter()` e liberado depois da saída).
-- **Logs no formato do enunciado** (`[HH:MM.mmm] [Thread-Cliente-NN]
-  CATEGORIA: ...`) ainda não existem — os `println` atuais são só para
-  debug interno.
-- **POS/pagamento** não é gerenciado aqui — é o `Barbeiro`/Integração quem
-  disputa a POS; o `Client` só espera passivamente via
-  `waitUntilAttended()`.
+Resultado esperado: todos terminam com código 0 e sem travar. Detalhes em [tests/tests.md](tests/tests.md).

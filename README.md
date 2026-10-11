@@ -6,18 +6,19 @@ Implementação da versão clássica do **Problema da Barbearia de Ralph Hilzer*
 
 ## Integrantes e Frentes de Trabalho
 
-| Nome          | Frente de Trabalho | Branch               |
+| Nome          | Frente de Trabalho | Branch original      |
 | ------------- | ------------------ | -------------------- |
 | _(preencher)_ | Barbeiro           | `feature/barbeiro`   |
-| _(preencher)_ | Cliente e Espera   | `feature/cliente`    |
-| _(preencher)_ | Integração         | `feature/integracao` |
+| _(preencher)_ | Cliente e Espera   | `feat/cliente`       |
+| _(preencher)_ | Integração         | `feat/integracao`    |
 
 ---
 
 ## Pré-requisitos
 
-- **JDK:** _(definir a versão do Java a ser usada pelo grupo — ex.: Java 17, Java 21 — e preencher aqui)_.
-- Ferramenta de build (Maven ou Gradle), conforme escolha do grupo.
+- **JDK 17** (desenvolvido e testado com OpenJDK Temurin 17.0.14; `java -version`). Usa `switch` com `->`, que exige Java 14+.
+- Sem ferramenta de build nem dependências externas: compila com `javac` puro. Os testes também não usam JUnit.
+- Scripts: PowerShell 5.1+ (Windows) ou Bash (Linux; o cenário A do experimento precisa de `taskset`).
 
 ---
 
@@ -76,13 +77,15 @@ Termos usados neste projeto e nas discussões de arquitetura, para todo mundo do
 
 - [x] 3 cadeiras de barbeiro (`BarberChair.java`).
 - [x] 3 barbeiros implementados como threads trabalhadoras (`Barber.java`).
-- [x] Sala de espera com sofá de 4 lugares (`WaitingRoom.java`).
-- [ ] Capacidade total do recinto rigorosamente igual a 20 clientes (Frente de Integração).
-- [ ] Nenhum cliente entra se a capacidade máxima estiver satisfeita.
+- [x] Sala de espera com sofá de 4 lugares e fila em pé de 13 (`WaitingRoom.java`).
+- [x] Capacidade total do recinto rigorosamente igual a 20 clientes (`Capacity.java`, `Semaphore(20, true)`).
+- [x] Nenhum cliente entra se a capacidade máxima estiver satisfeita (`tryAcquire` não bloqueante: o cliente desiste na hora).
 - [x] Cliente senta no sofá se houver vaga; caso contrário, espera em pé.
-- [x] Ao liberar um barbeiro: chama o cliente há mais tempo no sofá **e** promove o cliente há mais tempo em pé para o lugar vago no sofá (FIFO em dois níveis).
-- [x] Qualquer barbeiro pode receber pagamento, mas apenas um cliente paga por vez (POS única, exclusão mútua serializada via `CaixaPOS.java`).
-- [x] Barbeiros dividem tempo entre: cortar cabelo, receber pagamento e dormir cooperativamente enquanto aguardam clientes (sem consumir ciclos de CPU nesse período).
+- [x] Ao liberar um barbeiro: chama o cliente há mais tempo no sofá **e** promove o cliente há mais tempo em pé para o lugar vago no sofá (FIFO em dois níveis, atômico em `WaitingRoom.getNext`).
+- [x] Qualquer barbeiro pode receber pagamento, mas apenas um cliente paga por vez (POS única, `PosTerminal.java`, `ReentrantLock(true)`).
+- [x] Barbeiros dividem tempo entre: cortar cabelo, receber pagamento e dormir cooperativamente enquanto aguardam clientes (`wait()` no monitor da sala, sem consumir CPU).
+- [x] Logs de auditoria no formato do enunciado, em console e arquivo (`AuditLogger.java`).
+- [x] Experimento de afinidade de CPU com ≥ 50 clientes atendidos e tabela da Q4 com dados reais (`resultados/tabela-q4.md`).
 
 ---
 
@@ -95,65 +98,75 @@ Termos usados neste projeto e nas discussões de arquitetura, para todo mundo do
 5. **Pagamento serializado** na POS (um de cada vez, entre os 3 barbeiros).
 6. **Logs suficientes** para auditar todos os eventos: entrada, espera em pé, sentar no sofá, ser chamado, pagamento, saída.
 
+Como cada uma é verificada: ver [tests/tests.md](tests/tests.md).
+
 ---
 
 ## 5. Arquitetura e Divisão de Responsabilidades
 
-O projeto é dividido em três frentes de trabalho, cada uma responsável por um conjunto de classes. As fronteiras foram desenhadas para minimizar dependências cruzadas durante o desenvolvimento, mas os **recursos compartilhados** (sofá, POS, capacidade total) são definidos como contrato pela frente de Integração para que os outros dois lados codifiquem contra uma interface estável.
+Código (classes, métodos, variáveis) em inglês; logs, documentação e comentários em português. Os pacotes
+`barbeiro/`, `cliente/` e `integracao/` preservam a divisão de frentes do grupo.
 
-### 5.1 Barbeiro
+### 5.1 Barbeiro — `barbeiro/`
 
-**Responsável por:** `Barber.java`, `BarberChair.java`, `BarberState.java`
+**Classes:** `Barber`, `BarberChair`, `BarberState`
 
-- Implementa `Runnable`.
-- Ciclo de vida da thread: dormir (bloqueio real, sem busy-wait) enquanto não há cliente para atender; acordar quando chamado.
-- Chama o cliente há mais tempo no sofá quando fica disponível.
-- Controla a ocupação da própria cadeira (1 das 3 cadeiras de barbeiro).
-- Simula o corte de cabelo com `Thread.sleep(...)`.
-- Ao concluir o corte, disputa a POS (recurso da frente de Integração) para receber o pagamento.
-- Registra eventos de log: `ATENDIMENTO`, `PAGAMENTO`, conclusão de corte.
+- `Barber` implementa `Runnable`. Dorme com `wait()` no monitor da `WaitingRoom` quando o sofá está vazio (sem busy-wait) e acorda com o `notifyAll()` de `enter()`.
+- Chama `WaitingRoom.getNext(nome, cadeira)`, ocupa a cadeira, simula o corte (`Thread.sleep`), disputa a `PosTerminal` e simula o pagamento.
+- Em `serve`, a cadeira é liberada e `client.completeAttendance()` é chamado num `finally`: nenhum caminho (nem exceção inesperada) deixa o cliente preso.
+- Mede corte e pagamento com `System.nanoTime` e repassa à `Metrics`.
+- Encerramento normal com `stopWhenEmpty()`; `stop()` só no caminho de emergência.
 
-### 5.2 Cliente e Espera
+### 5.2 Cliente e Espera — `cliente/`
 
-**Responsável por:** `Client.java`, `WaitingRoom.java`
+**Classes:** `Client`, `WaitingRoom`
 
-- `Client` implementa `Runnable`: tenta entrar na barbearia (respeitando a capacidade total, controlada via recurso da Integração), aguarda em pé ou no sofá, e sai após o pagamento.
-- `WaitingRoom` encapsula:
-  - A fila em pé (FIFO).
-  - O sofá (4 lugares, FIFO estrito).
-  - A lógica de promoção em pé → sofá quando uma vaga é liberada.
-- Registra eventos de log: `CHEGADA`, `ESPERA`, `PROMOÇÃO`, `SAÍDA`.
+- `Client` implementa `Runnable` e controla o próprio ciclo de vida: reserva a vaga na `Capacity` (ou desiste) → entra na sala → espera ser chamado → espera o barbeiro concluir → devolve a vaga num `finally`. Guarda os timestamps e as ordens de fila usados pelas métricas e pelos testes de FIFO.
+- `WaitingRoom` é um monitor único (`synchronized`/`wait`/`notifyAll`) com sofá (4) e fila em pé (13) em `ArrayDeque`. `getNext` retira o primeiro do sofá, promove o primeiro em pé e marca o chamado (`iAmTheNext`) atomicamente. Um cliente interrompido antes de ser chamado sai da fila (e o próximo em pé é promovido); interrompido depois de chamado, segue para o atendimento.
 
-### 5.3 Integração
+### 5.3 Integração — `integracao/` e raiz
 
-**Responsável por:** `CaixaPOS.java`, mecanismos de sinalização sofá↔barbeiro, controle de capacidade total, `Logger`/sistema de auditoria, `Main.java`.
+**Classes:** `PosTerminal`, `Capacity`, `AuditLogger`, `Metrics`, `Simulation`, `Main`
 
-- **`CaixaPOS`**: mutex/lock garantindo que só um cliente pague por vez, usado tanto por `Client` quanto por `Barber`.
-- **Sinalização sofá ↔ barbeiro**: mecanismo (ex.: `Semaphore` com `fairness = true`, ou `Lock` + `Condition`) que evita lost wake-up entre o barbeiro que fica livre e o cliente que está no sofá.
-- **Capacidade total (20)**: tipicamente um `Semaphore(20, fair = true)` compartilhado, adquirido na entrada e liberado na saída do cliente.
-- **Logger**: sistema de logs cronometrados e thread-safe, no formato padronizado (ver seção 7).
-- **`Main`**: inicializa e sobe as threads de barbeiros e clientes, configura os cenários de execução (afinidade de CPU) e coordena o encerramento da simulação.
-
-> Antes de codar, as três frentes devem combinar as **assinaturas das classes/interfaces compartilhadas** (`CaixaPOS`, `WaitingRoom`, o semáforo de capacidade) para que o desenvolvimento avance em paralelo sem bloqueios entre os integrantes.
+- **`PosTerminal`**: `ReentrantLock(true)`; um pagamento por vez, conta transações e o pico de pagamentos simultâneos.
+- **`Capacity`**: `Semaphore(20, true)` com `tryAcquire` não bloqueante; altera permissão e contador dentro do lock do log, então a lotação impressa em cada linha está em ordem.
+- **`AuditLogger`**: instância injetada (sem estado global); timestamp calculado dentro do lock; ator lógico; console, arquivo e memória.
+- **`Metrics`**: tempo total, esperas médias (em pé, sofá, fila da POS), utilização por barbeiro, atendidos e desistentes por motivo; grava CSV.
+- **`Simulation`**: monta e roda uma execução (usada pelo `Main` e pelos testes); chegadas escalonadas com semente; detecção de deadlock/timeout e de exceções não capturadas; `checkInvariants`.
+- **`Main`**: lê os argumentos, registra o ambiente (processadores visíveis para a JVM), imprime o resumo, grava CSV e sai com código 2 em qualquer falha.
 
 ---
 
-## 6. Estrutura de Diretórios Sugerida
+## 6. Estrutura de Diretórios
 
 ```
-barbearia/
-├── src/
-│   ├── main/java/barbearia/
-│   │   ├── Main.java
-│   │   ├── barbeiro/
-│   │   │   └── Barber.java
-│   │   ├── cliente/
-│   │   │   ├── Client.java
-│   │   │   └── WaitingRoom.java
-│   │   └── integracao/
-│   │       ├── CaixaPOS.java
-│   │       └── Logger.java
-├── build.gradle (ou pom.xml)
+thread-barbearia/
+├── src/main/java/barbearia/
+│   ├── Main.java
+│   ├── Simulation.java
+│   ├── barbeiro/
+│   │   ├── Barber.java
+│   │   ├── BarberChair.java
+│   │   └── BarberState.java
+│   ├── cliente/
+│   │   ├── Client.java
+│   │   └── WaitingRoom.java
+│   └── integracao/
+│       ├── AuditLogger.java
+│       ├── Capacity.java
+│       ├── Metrics.java
+│       └── PosTerminal.java
+├── tests/                      # pacote "tests" (ver tests/tests.md)
+├── scripts/
+│   ├── run-tests.sh / .ps1     # compila e roda todos os testes
+│   ├── rodar-cenario-a.sh/.ps1 # cenário A: 1 núcleo
+│   ├── rodar-cenario-b.sh/.ps1 # cenário B: multicore livre
+│   └── rodar-experimento.sh/.ps1
+├── resultados/tabela-q4.md     # tabela da Q4 (CSVs gerados não são versionados)
+├── logs/                       # gerado: logs/execucao-<cenario>.log (não versionado)
+├── notas_decisoes.md           # decisões de implementação (insumo do relatório)
+├── notas_relatorio_*.md
+├── instrucoes.md               # contrato de Client e WaitingRoom
 └── README.md
 ```
 
@@ -161,47 +174,104 @@ barbearia/
 
 ## 7. Formato de Log para Auditoria
 
-Todo evento relevante deve ser registrado com timestamp, identificação da thread e descrição clara, incluindo o estado da capacidade quando aplicável:
+Todo evento é registrado com timestamp relativo ao início, ator lógico e descrição, incluindo a lotação quando
+aplicável. Apenas os seis eventos do enunciado existem (`enum AuditLogger.Event`): `CHEGADA`, `ESPERA`,
+`ATENDIMENTO`, `PROMOÇÃO`, `PAGAMENTO`, `SAÍDA`. Trecho real de `logs/execucao-B.log` (execução padrão, `java -cp out barbearia.Main`):
 
 ```
-[00:01.120] [Thread-Cliente-04] CHEGADA: Entrou na barbearia (Lotação: 12/20).
-[00:01.122] [Thread-Cliente-04] ESPERA: Sofá lotado. Aguardando em pé (Posição 8 da fila em pé).
-[00:02.340] [Thread-Barbeiro-01] ATENDIMENTO: Chamou Cliente-01 do sofá para a Cadeira 1.
-[00:02.341] [Thread-Cliente-04] PROMOÇÃO: Assumiu assento no sofá (Posição 4 do sofá).
-[00:05.890] [Thread-Cliente-01] PAGAMENTO: Corte concluído. Solicitando máquina POS.
-[00:06.450] [Thread-Cliente-01] SAÍDA: Pagamento concluído com Barbeiro-01. Saiu (Lotação: 11/20).
+[00:00.172] [Thread-Cliente-04] PAGAMENTO: Corte concluído. Solicitando máquina POS.
+[00:00.172] [Thread-Barbeiro-02] ATENDIMENTO: Chamou Cliente-06 do sofá para a Cadeira 2.
+[00:00.172] [Thread-Cliente-01] SAÍDA: Pagamento concluído com Barbeiro-02. Saiu (Lotação: 7/20).
+[00:00.172] [Thread-Cliente-04] PAGAMENTO: Máquina POS liberada. Pagando com Barbeiro-03.
+[00:00.172] [Thread-Cliente-10] PROMOÇÃO: Assumiu assento no sofá (Posição 4 do sofá).
+[00:00.184] [Thread-Cliente-11] CHEGADA: Entrou na barbearia (Lotação: 8/20).
+[00:00.184] [Thread-Cliente-12] CHEGADA: Entrou na barbearia (Lotação: 9/20).
+[00:00.184] [Thread-Cliente-13] CHEGADA: Entrou na barbearia (Lotação: 10/20).
+[00:00.184] [Thread-Cliente-11] ESPERA: Sofá lotado. Aguardando em pé (Posição 1 da fila em pé).
+[00:00.184] [Thread-Cliente-13] ESPERA: Sofá lotado. Aguardando em pé (Posição 2 da fila em pé).
+[00:00.185] [Thread-Cliente-12] ESPERA: Sofá lotado. Aguardando em pé (Posição 3 da fila em pé).
 ```
 
-O sistema de log precisa ser **thread-safe** (múltiplas threads escrevendo concorrentemente) e **cronologicamente consistente**.
+- O ator é o **ator lógico** do evento, não o nome da thread Java: o `PAGAMENTO` é escrito pela thread do
+  barbeiro, mas descreve o cliente.
+- Desistências usam o mesmo vocabulário: `CHEGADA: Barbearia lotada (Lotação: 20/20). Desistiu.`;
+  `SAÍDA: Sala de espera cheia. Desistiu. Saiu (...)`; `SAÍDA: Desistiu da espera (interrompido). Saiu (...)`.
+- Linhas iniciadas por `#` são informativas (ambiente da execução, diagnóstico de falha), fora do fluxo de eventos.
+- O arquivo de log é UTF-8. No console, a saída segue a codificação do terminal; se os acentos aparecerem
+  trocados ao redirecionar a saída, consulte o arquivo em `logs/`.
 
 ---
 
 ## 8. Experimento Prático: Afinidade de CPU
 
-Para avaliar empiricamente pseudoparalelismo vs. paralelismo real, a aplicação deve rodar com carga de **pelo menos 50 clientes** em dois cenários:
+- **Cenário A — Monoprocessador:** JVM restrita a 1 núcleo lógico.
+  - Windows: `.\scripts\rodar-cenario-a.ps1` (usa `cmd /v:on /c "start "" /b /wait /affinity 1 java ..."`; o `Start-Process` do PowerShell 5.1 não tem `-Affinity`).
+  - Linux: `scripts/rodar-cenario-a.sh` (`taskset -c 0 java ...`).
+- **Cenário B — Multicore Livre:** `scripts/rodar-cenario-b.{sh,ps1}`.
 
-- **Cenário A — Monoprocessador:** JVM restrita a 1 único núcleo lógico.
-  - Windows (PowerShell): `Start-Process java -ArgumentList "-jar Barbearia.jar" -Affinity 1`
-  - Linux (taskset): `taskset -c 0 java -jar Barbearia.jar`
-- **Cenário B — Multicore Livre:** execução distribuída livremente entre todos os núcleos disponíveis.
+A primeira linha de cada log registra `processadores visiveis para a JVM: N` (`Runtime.availableProcessors()`),
+prova de que o cenário A rodou em 1 núcleo; o mesmo valor vai para a coluna `processadores` do CSV.
+
+Experimento completo (5 execuções por cenário, intercaladas, e geração de `resultados/tabela-q4.md`):
+
+```powershell
+.\scripts\rodar-experimento.ps1            # Windows (testado)
+```
+```bash
+scripts/rodar-experimento.sh               # Linux com taskset (lógica testada com taskset simulado)
+```
+
+O script aborta sem gravar a tabela se alguma execução falhar, atender menos de 50 clientes ou se o cenário A
+não enxergar exatamente 1 processador. O experimento usa 55 clientes por execução: com 50, o cenário A às vezes
+perde o último cliente por lotação (ver `notas_decisoes.md`).
 
 ---
 
 ## 9. Como Compilar e Executar
 
-> Ajustar conforme a ferramenta de build escolhida (Maven ou Gradle).
-
 ```bash
-# Compilar
-javac -d out src/main/java/barbearia/**/*.java
+# Compilar (Git Bash / Linux)
+javac -d out $(find src -name "*.java")
 
-# Executar (exemplo simples, sem build tool)
+# Compilar (PowerShell)
+javac -d out (Get-ChildItem src -Recurse -Filter *.java).FullName
+
+# Executar com os padrões (50 clientes, cenário B, seed 42)
 java -cp out barbearia.Main
 ```
 
+Argumentos do `Main`:
+
+| Argumento | Padrão | Significado |
+| --- | --- | --- |
+| `--clientes N` | 50 | número de clientes (threads) |
+| `--cenario A\|B` | B | rótulo do cenário (a afinidade é aplicada pelos scripts) |
+| `--seed S` | 42 | semente dos intervalos de chegada |
+| `--intervalo-max-ms MS` | 25 | intervalo entre chegadas sorteado em [0, MS]; 0 = todos chegam juntos |
+| `--corte-ms MS` | 30 | duração simulada do corte |
+| `--pagamento-ms MS` | 15 | duração simulada do pagamento |
+| `--timeout-s S` | 60 | prazo para a simulação terminar; ao estourar, dump de threads e saída 2 |
+| `--execucao K` | — | sufixo do log/CSV (`execucao-A-3.log`, `resultados-A-3.csv`) |
+| `--silencioso` | — | não imprime os eventos no console (o arquivo de log é gravado igual) |
+
+Saídas: `logs/execucao-<cenario>[-K].log` e `resultados/resultados-<cenario>[-K].csv`.
+
+Códigos de saída: **0** sucesso; **2** timeout/deadlock, exceção não tratada ou invariante violada (com
+diagnóstico no stderr e no log); **64** argumento inválido.
+
 ---
 
-## 10. Referências Bibliográficas
+## 10. Testes
+
+```bash
+scripts/run-tests.sh        # ou .\scripts\run-tests.ps1
+```
+
+Compila tudo e roda os 10 testes; sai com código ≠ 0 se algum falhar. Detalhes em [tests/tests.md](tests/tests.md).
+
+---
+
+## 11. Referências Bibliográficas
 
 - Stallings, W., & Paul, G. K. (2012). _Operating Systems: Internals and Design Principles_ (Vol. 9). New York: Pearson.
 - Silberschatz, A., Galvin, P. B., & Gagne, G. (2018). _Operating System Concepts_ (10th ed.). Hoboken: Wiley.

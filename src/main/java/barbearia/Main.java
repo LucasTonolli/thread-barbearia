@@ -60,9 +60,9 @@ public class Main {
 
         joinAll(clientThreads);
 
-        barber1.stop();
-        barber2.stop();
-        barber3.stop();
+        barber1.stopWhenEmpty();
+        barber2.stopWhenEmpty();
+        barber3.stopWhenEmpty();
 
         joinThread(barberThread1);
         joinThread(barberThread2);

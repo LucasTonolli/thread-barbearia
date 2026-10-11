@@ -25,6 +25,7 @@ public class WaitingRoom {
     private final AuditLogger logger;
 
     private int rejectedCount = 0;
+    private int interruptedAfterCallCount = 0;
 
     public WaitingRoom(AuditLogger logger) {
         this.logger = logger;
@@ -64,6 +65,14 @@ public class WaitingRoom {
             try {
                 wait();
             } catch (InterruptedException e) {
+                if (client.isTheNext()) {
+                    // A interrupcao chegou depois de getNext() marcar o cliente: ele ja saiu da
+                    // fila e um barbeiro ja o atende. Desistir agora geraria um atendimento
+                    // "fantasma"; ele segue para o atendimento e a interrupcao fica registrada.
+                    interruptedAfterCallCount++;
+                    Thread.currentThread().interrupt();
+                    return true;
+                }
                 boolean wasSeated = seatedClients.remove(client);
                 standingClients.remove(client);
 
@@ -147,6 +156,11 @@ public class WaitingRoom {
      */
     public synchronized int getRejectedCount() {
         return rejectedCount;
+    }
+
+    /** Quantas vezes um cliente foi interrompido ja depois de chamado (e seguiu para o atendimento). */
+    public synchronized int getInterruptedAfterCallCount() {
+        return interruptedAfterCallCount;
     }
 
     private boolean isSeatedClientsFull() {

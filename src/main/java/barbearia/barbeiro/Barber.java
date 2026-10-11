@@ -142,18 +142,22 @@ public class Barber implements Runnable {
 
             clientsServed.incrementAndGet();
             client.setAttendedBy(name);
-            client.completeAttendance();
 
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-
-            // Evita que a thread do cliente permane\u00e7a bloqueada indefinidamente.
-            client.completeAttendance();
             running = false;
 
         } finally {
-            if (chairOccupied) {
-                chair.release();
+            // Qualquer saida (sucesso, interrupcao ou excecao inesperada em occupy/acquire/release)
+            // libera a cadeira e destrava o cliente; sem isso a thread do cliente ficaria presa
+            // para sempre em waitUntilAttended(). Uma excecao inesperada continua propagando
+            // depois daqui e chega ao UncaughtExceptionHandler.
+            try {
+                if (chairOccupied) {
+                    chair.release();
+                }
+            } finally {
+                client.completeAttendance();
             }
         }
     }

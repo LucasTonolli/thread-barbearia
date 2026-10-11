@@ -74,14 +74,23 @@ public class Client implements Runnable {
         this.notifyAll();
     }
 
+    /**
+     * Bloqueia ate o barbeiro encerrar o atendimento. Uma vez chamado, o cliente esta na cadeira:
+     * a interrupcao nao o tira dali (senao devolveria a vaga com o corte em andamento). Ela e
+     * guardada e restaurada no fim. Termina sempre, porque Barber.serve chama
+     * completeAttendance() num finally.
+     */
     public synchronized void waitUntilAttended() {
+        boolean interrupted = false;
         while (!this.completedAttendance) {
             try {
                 wait();
             } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                return;
+                interrupted = true;
             }
+        }
+        if (interrupted) {
+            Thread.currentThread().interrupt();
         }
     }
 

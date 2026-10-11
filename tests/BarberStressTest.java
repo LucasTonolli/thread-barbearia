@@ -47,6 +47,9 @@ public class BarberStressTest {
             System.out.println(" [FALHA] Houve inconsistencias ou travamentos em " + problemRounds + " rodadas.");
         }
         System.out.println("=================================================================");
+        if (problemRounds > 0) {
+            System.exit(1);
+        }
     }
 
     private static boolean runStressRound(int round) throws InterruptedException {

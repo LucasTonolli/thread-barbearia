@@ -34,6 +34,9 @@ public class BarberManualTest {
 
         System.out.println();
         System.out.println("=== RESULTADO: " + passed + " passaram, " + failed + " falharam ===");
+        if (failed > 0) {
+            System.exit(1);
+        }
     }
 
     private static void testSingleClientSingleBarber() throws InterruptedException {

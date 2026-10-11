@@ -29,6 +29,8 @@ public class WaitingRoomStressTest {
         if (roundsWithProblems == 0) {
             System.out.println("(nao apareceu problema nessas rodadas - nao significa que esta 100% seguro,");
             System.out.println(" so que essa carga especifica nao teve azar de expor a race condition)");
+        } else {
+            System.exit(1);
         }
     }
 
@@ -67,12 +69,18 @@ public class WaitingRoomStressTest {
             t.start();
         }
 
+        // join com prazo: um cliente nunca liberado conta como problema em vez de travar o teste.
+        boolean stuck = false;
         for (Thread t : clientThreads) {
-            t.join();
+            t.join(5000);
+            stuck |= t.isAlive();
         }
-        fakeBarbeiro.join();
+        fakeBarbeiro.join(5000);
 
-        boolean problem = exceptionCount.get() > 0;
+        boolean problem = exceptionCount.get() > 0 || stuck;
+        if (stuck) {
+            System.out.println("  [PROBLEMA] cliente(s) presos na sala apos o fim do barbeiro falso");
+        }
 
         long distinctServed = servedClients.stream().distinct().count();
         if (distinctServed != servedClients.size()) {

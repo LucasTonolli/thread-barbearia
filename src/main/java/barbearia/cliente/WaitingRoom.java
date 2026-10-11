@@ -1,6 +1,7 @@
 package barbearia.cliente;
 
 import barbearia.integracao.AuditLogger;
+import barbearia.integracao.AuditLogger.Event;
 
 import java.util.ArrayDeque;
 import java.util.Queue;
@@ -9,40 +10,51 @@ import java.util.Queue;
  * Sala de espera com dois niveis FIFO:
  *  - sofa: 4 lugares;
  *  - fila em pe: 13 lugares.
+ *
+ * Monitor unico (synchronized/wait/notifyAll): clientes e barbeiros esperam neste mesmo objeto.
+ * Os logs ESPERA, ATENDIMENTO e PROMOCAO sao emitidos dentro do monitor, entao a ordem das
+ * linhas reflete a ordem real das operacoes nas filas.
  */
 public class WaitingRoom {
 
+    public static final int MAX_SEATED_CLIENTS = 4;
+    public static final int MAX_STANDING_CLIENTS = 13;
+
     private final Queue<Client> standingClients = new ArrayDeque<>();
     private final Queue<Client> seatedClients = new ArrayDeque<>();
-
-    private static final int MAX_SEATED_CLIENTS = 4;
-    private static final int MAX_STANDING_CLIENTS = 13;
+    private final AuditLogger logger;
 
     private int rejectedCount = 0;
+
+    public WaitingRoom(AuditLogger logger) {
+        this.logger = logger;
+    }
+
+    public WaitingRoom() {
+        this(AuditLogger.silent());
+    }
 
     /**
      * Coloca o cliente no sofa ou na fila em pe e bloqueia sua thread
      * ate que um barbeiro o escolha para atendimento.
+     * @return false se a sala esta cheia ou se a thread foi interrompida antes de ser chamada.
      */
     public synchronized boolean enter(Client client) {
         if (isSeatedClientsFull() && isStandingClientsFull()) {
             rejectedCount++;
-            AuditLogger.log("DESISTENCIA", client.getName() + " encontrou a sala de espera fisicamente cheia");
+            logger.log(client.getName(), Event.ESPERA, "Sala de espera cheia (" + MAX_SEATED_CLIENTS
+                    + " no sof\u00e1 e " + MAX_STANDING_CLIENTS + " em p\u00e9).");
             return false;
         }
 
         if (!isSeatedClientsFull()) {
             seatedClients.offer(client);
-            AuditLogger.log(
-                    "ESPERA",
-                    client.getName() + " sentou no sofa (posicao " + seatedClients.size() + "/" + MAX_SEATED_CLIENTS + ")"
-            );
+            logger.log(client.getName(), Event.ESPERA,
+                    "Sentou no sof\u00e1 (Posi\u00e7\u00e3o " + seatedClients.size() + " do sof\u00e1).");
         } else {
             standingClients.offer(client);
-            AuditLogger.log(
-                    "ESPERA",
-                    client.getName() + " aguardando em pe (posicao " + standingClients.size() + "/" + MAX_STANDING_CLIENTS + ")"
-            );
+            logger.log(client.getName(), Event.ESPERA,
+                    "Sof\u00e1 lotado. Aguardando em p\u00e9 (Posi\u00e7\u00e3o " + standingClients.size() + " da fila em p\u00e9).");
         }
 
         // Acorda barbeiros que estejam dormindo no monitor da sala.
@@ -61,7 +73,6 @@ public class WaitingRoom {
 
                 notifyAll();
                 Thread.currentThread().interrupt();
-                AuditLogger.log("INTERRUPCAO", client.getName() + " deixou a fila antes do atendimento");
                 return false;
             }
         }
@@ -69,23 +80,28 @@ public class WaitingRoom {
         return true;
     }
 
-    /**
-     * Retira o cliente mais antigo do sofa e promove o mais antigo da fila em pe.
-     */
+    /** Versao sem log de ATENDIMENTO, para testes que fazem o papel de barbeiro. */
     public synchronized Client getNext() {
+        return getNext(null, 0);
+    }
+
+    /**
+     * Chamado pelo barbeiro: retira o cliente mais antigo do sofa e promove o mais antigo da fila
+     * em pe, tudo atomicamente sob o monitor da sala (inclusive a marca iAmNext e os logs).
+     * @return o cliente chamado, ou null se o sofa esta vazio.
+     */
+    public synchronized Client getNext(String barberName, int chairId) {
         if (seatedClients.isEmpty()) {
             return null;
         }
 
         Client client = seatedClients.poll();
-        Client promoted = promoteStandingClientIfPossible();
-
-        client.iAmTheNext();
-
-        AuditLogger.log("CHAMADA", client.getName() + " foi retirado do sofa para atendimento");
-        if (promoted != null) {
-            AuditLogger.log("PROMOCAO", promoted.getName() + " saiu da fila em pe e ocupou o sofa");
+        if (barberName != null) {
+            logger.log(barberName, Event.ATENDIMENTO,
+                    "Chamou " + client.getName() + " do sof\u00e1 para a Cadeira " + chairId + ".");
         }
+        promoteStandingClientIfPossible();
+        client.iAmTheNext();
 
         // Todos acordam, mas apenas o cliente marcado por iAmTheNext() prossegue.
         notifyAll();
@@ -99,12 +115,14 @@ public class WaitingRoom {
 
         Client promoted = standingClients.poll();
         seatedClients.offer(promoted);
+        logger.log(promoted.getName(), Event.PROMOCAO,
+                "Assumiu assento no sof\u00e1 (Posi\u00e7\u00e3o " + seatedClients.size() + " do sof\u00e1).");
         return promoted;
     }
 
-    public synchronized void printWaitingRoomStatus() {
-        System.out.println("Seated clients: " + seatedClients);
-        System.out.println("Standing clients: " + standingClients);
+    /** Retrato das duas filas (para depuracao); nao imprime nada. */
+    public synchronized String describe() {
+        return "Sof\u00e1: " + seatedClients + " | Em p\u00e9: " + standingClients;
     }
 
     public synchronized boolean isEmpty() {
@@ -123,6 +141,10 @@ public class WaitingRoom {
         return seatedClients.size() + standingClients.size();
     }
 
+    /**
+     * Clientes recusados por sala fisicamente cheia (17). Caminho defensivo: com a Capacity
+     * limitando a 20 e 3 clientes nas cadeiras, a sala raramente chega a recusar alguem.
+     */
     public synchronized int getRejectedCount() {
         return rejectedCount;
     }

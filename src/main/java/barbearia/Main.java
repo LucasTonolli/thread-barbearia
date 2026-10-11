@@ -1,12 +1,14 @@
 package barbearia;
 
 import barbearia.barbeiro.Barber;
+import barbearia.barbeiro.BarberChair;
 import barbearia.cliente.Client;
 import barbearia.cliente.WaitingRoom;
 import barbearia.integracao.PosTerminal;
 import barbearia.integracao.Capacity;
 import barbearia.integracao.AuditLogger;
 
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -19,19 +21,23 @@ public class Main {
     private static final int MAX_CAPACITY = 20;
 
     public static void main(String[] args) {
-        AuditLogger.reset();
+        try (AuditLogger logger = new AuditLogger(Path.of("logs", "execucao-B.log"), true, false)) {
+            run(logger);
+        }
+    }
 
+    private static void run(AuditLogger logger) {
         System.out.println("======================================");
         System.out.println("   SIMULACAO DA BARBEARIA DE HILZER");
         System.out.println("======================================");
 
-        WaitingRoom waitingRoom = new WaitingRoom();
-        PosTerminal pos = new PosTerminal();
-        Capacity capacity = new Capacity(MAX_CAPACITY);
+        WaitingRoom waitingRoom = new WaitingRoom(logger);
+        PosTerminal pos = new PosTerminal(logger);
+        Capacity capacity = new Capacity(MAX_CAPACITY, logger);
 
-        Barber barber1 = new Barber(1, "Barbeiro-01", waitingRoom, pos);
-        Barber barber2 = new Barber(2, "Barbeiro-02", waitingRoom, pos);
-        Barber barber3 = new Barber(3, "Barbeiro-03", waitingRoom, pos);
+        Barber barber1 = new Barber(1, "Barbeiro-01", new BarberChair(1, "Barbeiro-01"), waitingRoom, pos, 30L, 15L, logger);
+        Barber barber2 = new Barber(2, "Barbeiro-02", new BarberChair(2, "Barbeiro-02"), waitingRoom, pos, 30L, 15L, logger);
+        Barber barber3 = new Barber(3, "Barbeiro-03", new BarberChair(3, "Barbeiro-03"), waitingRoom, pos, 30L, 15L, logger);
 
         Thread barberThread1 = new Thread(barber1, "Thread-Barbeiro-01");
         Thread barberThread2 = new Thread(barber2, "Thread-Barbeiro-02");
@@ -45,19 +51,8 @@ public class Main {
 
         for (int i = 1; i <= CLIENT_COUNT; i++) {
             String clientName = "Cliente-" + String.format("%02d", i);
-            Client client = new Client(clientName, waitingRoom);
-
-            Thread clientThread = new Thread(() -> {
-                if (!capacity.tryEnter(client.getName())) {
-                    return;
-                }
-
-                try {
-                    client.run();
-                } finally {
-                    capacity.leave(client.getName(), client.isAttendanceCompleted());
-                }
-            }, "Thread-" + clientName);
+            Client client = new Client(clientName, waitingRoom, capacity, logger);
+            Thread clientThread = new Thread(client, "Thread-" + clientName);
 
             clientThreads.add(clientThread);
             clientThread.start();

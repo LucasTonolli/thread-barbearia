@@ -2,7 +2,6 @@ package tests;
 
 import barbearia.cliente.Client;
 import barbearia.cliente.WaitingRoom;
-import barbearia.integracao.AuditLogger;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -13,7 +12,6 @@ import java.util.List;
  */
 public class FifoIntegrationTest {
     public static void main(String[] args) throws Exception {
-        AuditLogger.setEnabled(false);
         WaitingRoom room = new WaitingRoom();
         List<Client> clients = new ArrayList<>();
         List<Thread> threads = new ArrayList<>();
@@ -45,7 +43,6 @@ public class FifoIntegrationTest {
             assertState(client.isAttendanceCompleted(), "cliente sem conclusao " + client);
             assertState(client.hasEnteredWaitingRoom(), "cliente sem entrada registrada " + client);
         }
-        AuditLogger.setEnabled(true);
         System.out.println("Resultado: FIFO sofa/pe, notificacoes, clientes e API compativeis: OK");
     }
 

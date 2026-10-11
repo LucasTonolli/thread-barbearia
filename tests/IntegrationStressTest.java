@@ -21,8 +21,6 @@ public class IntegrationStressTest {
     private static final int CAPACITY = 20;
 
     public static void main(String[] args) throws Exception {
-        AuditLogger.setEnabled(false);
-
         int failed = 0;
         for (int round = 1; round <= ROUNDS; round++) {
             if (!runRound(round)) {
@@ -30,7 +28,6 @@ public class IntegrationStressTest {
             }
         }
 
-        AuditLogger.setEnabled(true);
         System.out.println("Resultado: " + (ROUNDS - failed) + "/" + ROUNDS + " rodadas aprovadas.");
 
         if (failed > 0) {
@@ -39,9 +36,10 @@ public class IntegrationStressTest {
     }
 
     private static boolean runRound(int round) throws Exception {
-        WaitingRoom room = new WaitingRoom();
-        PosTerminal pos = new PosTerminal();
-        Capacity capacity = new Capacity(CAPACITY);
+        AuditLogger logger = AuditLogger.silent();
+        WaitingRoom room = new WaitingRoom(logger);
+        PosTerminal pos = new PosTerminal(logger);
+        Capacity capacity = new Capacity(CAPACITY, logger);
 
         Barber b1 = new Barber(1, "B1", room, pos);
         Barber b2 = new Barber(2, "B2", room, pos);
@@ -56,17 +54,8 @@ public class IntegrationStressTest {
 
         List<Thread> clients = new ArrayList<>();
         for (int i = 1; i <= CLIENTS; i++) {
-            Client c = new Client("R" + round + "-C" + i, room);
-            Thread t = new Thread(() -> {
-                if (!capacity.tryEnter(c.getName())) {
-                    return;
-                }
-                try {
-                    c.run();
-                } finally {
-                    capacity.leave(c.getName(), c.isAttendanceCompleted());
-                }
-            });
+            Client c = new Client("R" + round + "-C" + i, room, capacity, logger);
+            Thread t = new Thread(c);
             clients.add(t);
             t.start();
         }

@@ -1,15 +1,20 @@
 package barbearia.integracao;
 
+import barbearia.integracao.AuditLogger.Event;
+
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * Representa a unica maquina POS compartilhada pelos tres barbeiros.
- * O lock justo evita que um barbeiro fique indefinidamente sem acesso ao recurso.
+ * O lock justo (fila FIFO do AQS) atende os barbeiros na ordem em que pediram a maquina,
+ * entao nenhum fica indefinidamente sem acesso ao recurso.
+ * Lock unico e sem aquisicao aninhada de outro lock bloqueante: nao ha ciclo possivel.
  */
 public class PosTerminal {
 
     private final ReentrantLock lock = new ReentrantLock(true);
+    private final AuditLogger logger;
     private final AtomicInteger completedTransactions = new AtomicInteger(0);
     private final AtomicInteger activeTransactions = new AtomicInteger(0);
     private final AtomicInteger maxConcurrentTransactions = new AtomicInteger(0);
@@ -17,6 +22,15 @@ public class PosTerminal {
     private volatile String currentBarber;
     private volatile String currentClient;
 
+    public PosTerminal(AuditLogger logger) {
+        this.logger = logger;
+    }
+
+    public PosTerminal() {
+        this(AuditLogger.silent());
+    }
+
+    /** Bloqueia ate a maquina estar livre e registra o inicio do pagamento do cliente. */
     public void acquire(String barberName, String clientName) throws InterruptedException {
         lock.lockInterruptibly();
         currentBarber = barberName;
@@ -24,6 +38,16 @@ public class PosTerminal {
 
         int active = activeTransactions.incrementAndGet();
         maxConcurrentTransactions.accumulateAndGet(active, Math::max);
+        try {
+            logger.log(clientName, Event.PAGAMENTO, "M\u00e1quina POS liberada. Pagando com " + barberName + ".");
+        } catch (RuntimeException e) {
+            // O chamador so entra no try/finally depois de acquire retornar: devolve a POS aqui.
+            activeTransactions.decrementAndGet();
+            currentBarber = null;
+            currentClient = null;
+            lock.unlock();
+            throw e;
+        }
     }
 
     public void release(String barberName, String clientName) {

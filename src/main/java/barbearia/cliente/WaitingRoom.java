@@ -26,6 +26,8 @@ public class WaitingRoom {
 
     private int rejectedCount = 0;
     private int interruptedAfterCallCount = 0;
+    private int peakSeated = 0;
+    private int peakStanding = 0;
 
     public WaitingRoom(AuditLogger logger) {
         this.logger = logger;
@@ -57,6 +59,9 @@ public class WaitingRoom {
             logger.log(client.getName(), Event.ESPERA,
                     "Sof\u00e1 lotado. Aguardando em p\u00e9 (Posi\u00e7\u00e3o " + standingClients.size() + " da fila em p\u00e9).");
         }
+
+        peakSeated = Math.max(peakSeated, seatedClients.size());
+        peakStanding = Math.max(peakStanding, standingClients.size());
 
         // Acorda barbeiros que estejam dormindo no monitor da sala.
         notifyAll();
@@ -124,6 +129,7 @@ public class WaitingRoom {
 
         Client promoted = standingClients.poll();
         seatedClients.offer(promoted);
+        peakSeated = Math.max(peakSeated, seatedClients.size());
         logger.log(promoted.getName(), Event.PROMOCAO,
                 "Assumiu assento no sof\u00e1 (Posi\u00e7\u00e3o " + seatedClients.size() + " do sof\u00e1).");
         return promoted;
@@ -156,6 +162,16 @@ public class WaitingRoom {
      */
     public synchronized int getRejectedCount() {
         return rejectedCount;
+    }
+
+    /** Maior ocupacao observada do sofa (deve ser <= 4). */
+    public synchronized int getPeakSeated() {
+        return peakSeated;
+    }
+
+    /** Maior ocupacao observada da fila em pe (deve ser <= 13). */
+    public synchronized int getPeakStanding() {
+        return peakStanding;
     }
 
     /** Quantas vezes um cliente foi interrompido ja depois de chamado (e seguiu para o atendimento). */

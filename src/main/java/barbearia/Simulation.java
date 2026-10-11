@@ -38,8 +38,12 @@ public class Simulation {
     public static final class Config {
         public int clients = 50;
         public long seed = 42L;
-        /** Intervalo entre chegadas sorteado em [0, max] ms; 0 = todos chegam juntos. */
-        public int maxArrivalIntervalMs = 20;
+        /**
+         * Intervalo entre chegadas sorteado em [0, max] ms; 0 = todos chegam juntos.
+         * Calibrado em 25 ms (media 12,5 ms, perto da vazao da POS: 1 pagamento a cada 15 ms):
+         * ha fila em pe e espera na POS, mas os 50 clientes sao atendidos (ver notas_decisoes.md).
+         */
+        public int maxArrivalIntervalMs = 25;
         public long cutMs = 30L;
         public long paymentMs = 15L;
         public long timeoutMs = 60_000L;

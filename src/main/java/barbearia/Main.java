@@ -71,7 +71,27 @@ public class Main {
                 System.out.println("# " + environment);
             }
 
-            Simulation.Result result = Simulation.run(cfg, logger);
+            Simulation.Result result;
+            try {
+                result = Simulation.run(cfg, logger);
+            } catch (RuntimeException e) {
+                // Falha na propria orquestracao (ex.: arquivo de log): diagnostico e saida 2.
+                System.err.println("FALHA na simulacao: " + e);
+                e.printStackTrace();
+                System.err.println(Simulation.diagnoseThreads());
+                System.exit(EXIT_FAILURE);
+                return;
+            }
+
+            if (result.diagnostic != null) {
+                System.err.println(result.timedOut
+                        ? "TIMEOUT: a simulacao nao terminou em " + cfg.timeoutMs / 1000 + " s (possivel deadlock)."
+                        : "FALHA: excecao nao tratada em alguma thread.");
+                System.err.println(result.diagnostic);
+                for (String line : result.diagnostic.split("\n")) {
+                    logger.note(line);
+                }
+            }
             printSummary(result);
 
             List<String> violations = Simulation.checkInvariants(result);

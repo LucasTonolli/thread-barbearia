@@ -4,6 +4,7 @@ import barbearia.cliente.Client;
 import barbearia.cliente.WaitingRoom;
 import barbearia.integracao.AuditLogger;
 import barbearia.integracao.AuditLogger.Event;
+import barbearia.integracao.Metrics;
 import barbearia.integracao.PosTerminal;
 
 import java.util.concurrent.atomic.AtomicInteger;
@@ -23,6 +24,7 @@ public class Barber implements Runnable {
     private final WaitingRoom waitingRoom;
     private final PosTerminal pos;
     private final AuditLogger logger;
+    private final Metrics metrics;
 
     private final long cutDurationMs;
     private final long paymentDurationMs;
@@ -32,8 +34,31 @@ public class Barber implements Runnable {
     private volatile BarberState state = BarberState.SLEEPING;
 
     private final AtomicInteger clientsServed = new AtomicInteger(0);
-    private final AtomicLong totalCuttingTimeMs = new AtomicLong(0);
-    private final AtomicLong totalPaymentTimeMs = new AtomicLong(0);
+    // Tempos medidos (nanoTime), nao as duracoes configuradas.
+    private final AtomicLong totalCuttingTimeNanos = new AtomicLong(0);
+    private final AtomicLong totalPaymentTimeNanos = new AtomicLong(0);
+
+    public Barber(
+            int id,
+            String name,
+            BarberChair chair,
+            WaitingRoom waitingRoom,
+            PosTerminal pos,
+            long cutDurationMs,
+            long paymentDurationMs,
+            AuditLogger logger,
+            Metrics metrics
+    ) {
+        this.id = id;
+        this.name = name;
+        this.chair = chair;
+        this.waitingRoom = waitingRoom;
+        this.pos = pos;
+        this.cutDurationMs = cutDurationMs;
+        this.paymentDurationMs = paymentDurationMs;
+        this.logger = logger;
+        this.metrics = metrics;
+    }
 
     public Barber(
             int id,
@@ -45,14 +70,7 @@ public class Barber implements Runnable {
             long paymentDurationMs,
             AuditLogger logger
     ) {
-        this.id = id;
-        this.name = name;
-        this.chair = chair;
-        this.waitingRoom = waitingRoom;
-        this.pos = pos;
-        this.cutDurationMs = cutDurationMs;
-        this.paymentDurationMs = paymentDurationMs;
-        this.logger = logger;
+        this(id, name, chair, waitingRoom, pos, cutDurationMs, paymentDurationMs, logger, new Metrics());
     }
 
     public Barber(
@@ -119,29 +137,41 @@ public class Barber implements Runnable {
             state = BarberState.CALLING_CLIENT;
             chair.occupy(client);
             chairOccupied = true;
+            metrics.chairTaken();
 
             state = BarberState.CUTTING_HAIR;
+            long cutStart = System.nanoTime();
             if (cutDurationMs > 0) {
                 Thread.sleep(cutDurationMs);
             }
-            totalCuttingTimeMs.addAndGet(cutDurationMs);
+            long cutNanos = System.nanoTime() - cutStart;
+            totalCuttingTimeNanos.addAndGet(cutNanos);
+            metrics.addBarberBusy(id, cutNanos);
 
             state = BarberState.WAITING_POS;
             logger.log(client.getName(), Event.PAGAMENTO, "Corte conclu\u00eddo. Solicitando m\u00e1quina POS.");
+            client.markPosRequest(System.nanoTime());
             pos.acquire(name, client.getName());
             try {
+                // Espera na POS = so o tempo bloqueado em acquire.
+                long paymentStart = System.nanoTime();
+                client.markPosAcquired(paymentStart);
                 state = BarberState.RECEIVING_PAYMENT;
 
                 if (paymentDurationMs > 0) {
                     Thread.sleep(paymentDurationMs);
                 }
-                totalPaymentTimeMs.addAndGet(paymentDurationMs);
+                long paymentEnd = System.nanoTime();
+                client.markPaymentEnd(paymentEnd);
+                totalPaymentTimeNanos.addAndGet(paymentEnd - paymentStart);
+                metrics.addBarberBusy(id, paymentEnd - paymentStart);
             } finally {
                 pos.release(name, client.getName());
             }
 
             clientsServed.incrementAndGet();
             client.setAttendedBy(name);
+            metrics.recordServed(client);
 
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -155,6 +185,7 @@ public class Barber implements Runnable {
             try {
                 if (chairOccupied) {
                     chair.release();
+                    metrics.chairFreed();
                 }
             } finally {
                 client.completeAttendance();
@@ -198,12 +229,14 @@ public class Barber implements Runnable {
         return clientsServed.get();
     }
 
+    /** Tempo de corte medido (ms). */
     public long getTotalCuttingTimeMs() {
-        return totalCuttingTimeMs.get();
+        return totalCuttingTimeNanos.get() / 1_000_000L;
     }
 
+    /** Tempo de pagamento medido (ms), sem a espera pela POS. */
     public long getTotalPaymentTimeMs() {
-        return totalPaymentTimeMs.get();
+        return totalPaymentTimeNanos.get() / 1_000_000L;
     }
 
     public boolean isRunning() {

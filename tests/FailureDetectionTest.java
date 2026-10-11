@@ -102,8 +102,10 @@ public class FailureDetectionTest {
         check("execucao normal -> codigo 0 (obtido " + ok + ")", ok == 0);
         int usage = runMain("--cenario", "Z");
         check("argumento invalido -> codigo 64 (obtido " + usage + ")", usage == 64);
-        new File("logs/execucao-B-901.log").delete();
-        new File("logs/execucao-B-902.log").delete();
+        for (String run : new String[] {"B-901", "B-902"}) {
+            new File("logs/execucao-" + run + ".log").delete();
+            new File("resultados/resultados-" + run + ".csv").delete();
+        }
     }
 
     private static int runMain(String... args) throws Exception {

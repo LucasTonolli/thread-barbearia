@@ -6,6 +6,7 @@ import barbearia.cliente.Client;
 import barbearia.cliente.WaitingRoom;
 import barbearia.integracao.AuditLogger;
 import barbearia.integracao.Capacity;
+import barbearia.integracao.Metrics;
 import barbearia.integracao.PosTerminal;
 
 import java.lang.management.LockInfo;
@@ -23,7 +24,7 @@ import java.util.Random;
  * Usada pelo Main e pelos testes de integracao, que assim exercitam exatamente o mesmo codigo.
  *
  * Ordem de encerramento: join de todos os clientes -> stopWhenEmpty() nos barbeiros ->
- * join dos barbeiros -> invariantes. stop() so e usado no caminho de emergencia.
+ * join dos barbeiros -> metricas -> invariantes. stop() so e usado no caminho de emergencia.
  *
  * Deteccao de falhas: todas as threads tem um UncaughtExceptionHandler e a espera tem prazo.
  * Se o prazo estoura ou alguma thread morre com excecao, a simulacao gera um diagnostico
@@ -50,6 +51,7 @@ public class Simulation {
         public WaitingRoom room;
         public PosTerminal pos;
         public Capacity capacity;
+        public Metrics metrics;
         public final List<Barber> barbers = new ArrayList<>();
         public final List<Client> clients = new ArrayList<>();
         public boolean timedOut;
@@ -67,7 +69,7 @@ public class Simulation {
         }
 
         public int dropouts() {
-            return capacity.getRejectedCount() + room.getRejectedCount();
+            return metrics.getTotalDropouts();
         }
     }
 
@@ -108,6 +110,7 @@ public class Simulation {
         r.room = new WaitingRoom(logger);
         r.pos = new PosTerminal(logger);
         r.capacity = new Capacity(Capacity.DEFAULT_MAX, logger);
+        r.metrics = new Metrics();
 
         Tracker tracker = new Tracker();
         tracker.runningClients = cfg.clients;
@@ -122,7 +125,7 @@ public class Simulation {
         for (int i = 1; i <= NUM_BARBERS; i++) {
             String name = String.format("Barbeiro-%02d", i);
             Barber barber = new Barber(i, name, new BarberChair(i, name), r.room, r.pos,
-                    cfg.cutMs, cfg.paymentMs, logger);
+                    cfg.cutMs, cfg.paymentMs, logger, r.metrics);
             r.barbers.add(barber);
             barberThreads.add(newThread(barber, "Thread-" + name, handler));
         }
@@ -130,7 +133,7 @@ public class Simulation {
         List<Thread> clientThreads = new ArrayList<>();
         for (int i = 1; i <= cfg.clients; i++) {
             String name = String.format("Cliente-%02d", i);
-            Client client = new Client(name, r.room, r.capacity, logger);
+            Client client = new Client(name, r.room, r.capacity, logger, r.metrics);
             r.clients.add(client);
             Runnable tracked = () -> {
                 try {
@@ -143,6 +146,7 @@ public class Simulation {
         }
 
         long deadline = System.nanoTime() + cfg.timeoutMs * 1_000_000L;
+        r.metrics.start();
         barberThreads.forEach(Thread::start);
 
         // Chegadas escalonadas com semente fixa (reprodutivel). O sleep apenas simula o tempo
@@ -165,6 +169,7 @@ public class Simulation {
         if (!clientsDone) {
             r.timedOut = r.uncaughtExceptions.isEmpty();
             abort(r, clientThreads, barberThreads);
+            r.metrics.stop();
             return r;
         }
 
@@ -177,6 +182,8 @@ public class Simulation {
         if (!barbersDone) {
             r.timedOut = true;
         }
+        // 3. Tempo total = do inicio dos barbeiros ate o ultimo barbeiro encerrar.
+        r.metrics.stop();
         if (r.failed()) {
             abort(r, clientThreads, barberThreads);
         }
@@ -266,8 +273,16 @@ public class Simulation {
                 "pagamentos simultaneos na POS: " + r.pos.getMaxConcurrentTransactions());
         expect(violations, r.pos.getCompletedTransactions() == r.served(),
                 "pagamentos (" + r.pos.getCompletedTransactions() + ") != atendimentos (" + r.served() + ")");
+        expect(violations, r.metrics.getPeakChairs() <= NUM_BARBERS,
+                "cadeiras ocupadas ao mesmo tempo: " + r.metrics.getPeakChairs() + " > " + NUM_BARBERS);
         expect(violations, r.served() + r.dropouts() == n,
                 "atendidos (" + r.served() + ") + desistentes (" + r.dropouts() + ") != " + n);
+        expect(violations, r.served() == r.metrics.getServed(),
+                "atendidos pelos barbeiros (" + r.served() + ") != atendidos nas metricas ("
+                        + r.metrics.getServed() + ")");
+        long servedClients = r.clients.stream().filter(Client::wasServed).count();
+        expect(violations, servedClients == r.served(),
+                "clientes marcados como atendidos (" + servedClients + ") != atendimentos (" + r.served() + ")");
         return violations;
     }
 

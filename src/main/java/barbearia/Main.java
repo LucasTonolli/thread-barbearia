@@ -3,6 +3,7 @@ package barbearia;
 import barbearia.barbeiro.Barber;
 import barbearia.integracao.AuditLogger;
 
+import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
 
@@ -93,6 +94,13 @@ public class Main {
                 }
             }
             printSummary(result);
+            Path csv = Path.of("resultados", "resultados-" + label + ".csv");
+            try {
+                result.metrics.writeCsv(csv, scenario, execution, cfg.clients, cpus);
+                System.out.println("Metricas gravadas em " + csv);
+            } catch (IOException e) {
+                System.err.println("Nao foi possivel gravar " + csv + ": " + e);
+            }
 
             List<String> violations = Simulation.checkInvariants(result);
             if (violations.isEmpty()) {
@@ -109,16 +117,14 @@ public class Main {
 
     private static void printSummary(Simulation.Result r) {
         System.out.println("================ RESUMO DA SIMULACAO ================");
-        System.out.println("Clientes                            : " + r.config.clients);
-        System.out.println("Atendidos                           : " + r.served());
+        System.out.print(r.metrics.summary(r.config.clients));
         for (Barber b : r.barbers) {
-            System.out.println("  - " + b.getName() + "                     : " + b.getClientsServed());
+            System.out.println("Atendidos por " + b.getName() + "               : " + b.getClientsServed());
         }
-        System.out.println("Desistencias por lotacao (20)       : " + r.capacity.getRejectedCount());
-        System.out.println("Desistencias por sala cheia (17)    : " + r.room.getRejectedCount());
         System.out.println("Transacoes na POS                   : " + r.pos.getCompletedTransactions());
         System.out.println("Pico de lotacao / sofa / em pe      : " + r.capacity.getMaxObserved() + " / "
                 + r.room.getPeakSeated() + " / " + r.room.getPeakStanding());
+        System.out.println("Pico de cadeiras ocupadas           : " + r.metrics.getPeakChairs());
         System.out.println("Maximo de pagamentos simultaneos    : " + r.pos.getMaxConcurrentTransactions());
         System.out.println("=====================================================");
     }

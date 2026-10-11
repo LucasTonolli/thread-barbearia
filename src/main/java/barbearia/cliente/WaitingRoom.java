@@ -13,7 +13,11 @@ import java.util.Queue;
  *
  * Monitor unico (synchronized/wait/notifyAll): clientes e barbeiros esperam neste mesmo objeto.
  * Os logs ESPERA, ATENDIMENTO e PROMOCAO sao emitidos dentro do monitor, entao a ordem das
- * linhas reflete a ordem real das operacoes nas filas.
+ * linhas reflete a ordem real das operacoes nas filas. Pelo mesmo motivo, as ordens (entrada,
+ * fila em pe, sofa, chamada) e os timestamps gravados no Client sao coerentes entre si.
+ *
+ * Invariante: fila em pe nao vazia => sofa cheio (a promocao preenche a vaga na hora). Com as
+ * duas filas FIFO, a ordem de chamada e igual a ordem de entrada na sala.
  */
 public class WaitingRoom {
 
@@ -28,6 +32,12 @@ public class WaitingRoom {
     private int interruptedAfterCallCount = 0;
     private int peakSeated = 0;
     private int peakStanding = 0;
+
+    // Contadores de ordem (protegidos pelo monitor da sala).
+    private long enqueueCounter = 0;
+    private long standingCounter = 0;
+    private long sofaCounter = 0;
+    private long callCounter = 0;
 
     public WaitingRoom(AuditLogger logger) {
         this.logger = logger;
@@ -50,12 +60,16 @@ public class WaitingRoom {
             return false;
         }
 
+        long now = System.nanoTime();
+        client.markEnqueued(++enqueueCounter);
         if (!isSeatedClientsFull()) {
             seatedClients.offer(client);
+            client.markSofa(++sofaCounter, now);
             logger.log(client.getName(), Event.ESPERA,
                     "Sentou no sof\u00e1 (Posi\u00e7\u00e3o " + seatedClients.size() + " do sof\u00e1).");
         } else {
             standingClients.offer(client);
+            client.markStanding(++standingCounter, now);
             logger.log(client.getName(), Event.ESPERA,
                     "Sof\u00e1 lotado. Aguardando em p\u00e9 (Posi\u00e7\u00e3o " + standingClients.size() + " da fila em p\u00e9).");
         }
@@ -110,6 +124,7 @@ public class WaitingRoom {
         }
 
         Client client = seatedClients.poll();
+        client.markCalled(++callCounter, System.nanoTime());
         if (barberName != null) {
             logger.log(barberName, Event.ATENDIMENTO,
                     "Chamou " + client.getName() + " do sof\u00e1 para a Cadeira " + chairId + ".");
@@ -129,6 +144,7 @@ public class WaitingRoom {
 
         Client promoted = standingClients.poll();
         seatedClients.offer(promoted);
+        promoted.markSofa(++sofaCounter, System.nanoTime());
         peakSeated = Math.max(peakSeated, seatedClients.size());
         logger.log(promoted.getName(), Event.PROMOCAO,
                 "Assumiu assento no sof\u00e1 (Posi\u00e7\u00e3o " + seatedClients.size() + " do sof\u00e1).");

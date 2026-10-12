@@ -122,7 +122,7 @@ public class Client implements Runnable {
         }
     }
 
-    /** Mantido para o controle da capacidade e os testes de integracao. */
+    /** true se o barbeiro ja encerrou o atendimento (com ou sem sucesso). */
     public synchronized boolean isAttendanceCompleted() {
         return completedAttendance;
     }

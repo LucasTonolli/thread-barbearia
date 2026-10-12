@@ -26,7 +26,8 @@ sustenta. Para o funcionamento geral, ver [visao-geral.md](visao-geral.md) e
   pagamento) e recusa sem esperar; a sala só cuida da fila e bloqueia o cliente até ser chamado. Juntar as
   duas aumentaria a disputa no monitor da sala, que já é o mais concorrido. Custo aceito: entre passar pela
   `Capacity` e entrar na sala, um cliente pode ultrapassar outro (ver §8).
-- **`Simulation` separada do `Main`**: o `Main` e os testes executam exatamente a mesma orquestração.
+- **`Simulation` separada do `Main`**: o `Main` e os testes de integração (`IntegrationInvariantsTest`,
+  `IntegrationStressTest`, `CapacityVsRoomTest`, `FailureDetectionTest`) executam a mesma orquestração.
 
 ## 3. Sincronização
 
@@ -198,13 +199,18 @@ execuções de calibração e nas 10 do experimento foram atendidos 54–55. O p
 ## 9. Testes
 
 - Runner único: `scripts/run-tests.{sh,ps1}` (10 testes). Cobertura em [tests/tests.md](tests/tests.md).
-- Nenhum teste sincroniza com `sleep`: as esperas são em `CountDownLatch` ou no monitor da própria sala
-  (`enter()` notifica a cada cliente enfileirado). Duas exceções conscientes:
+- Os testes escritos na refatoração não sincronizam com `sleep`: esperam em `CountDownLatch` ou no monitor da
+  própria sala (`enter()` notifica a cada cliente enfileirado). Exceções conscientes:
   - no teste da interrupção depois de chamado, um `sleep(1)` com o monitor da sala retido **alarga a janela**
     para a interrupção chegar antes da notificação. As verificações valem em qualquer intercalação, e o
     contador prova que o caminho foi exercitado (200 de 200 tentativas);
   - `join(timeout)` é usado para afirmar que uma thread **continua** bloqueada (não há como observar isso sem
     um prazo).
+- Dois testes anteriores à refatoração ainda usam `sleep` como espera e foram mantidos como estão:
+  - `BarberManualTest` (caso 4) espera 100 ms para o barbeiro dormir antes de conferir o estado `SLEEPING`;
+    o barbeiro não avisa quando adormece, então a alternativa seria polling do estado;
+  - o "barbeiro falso" do `WaitingRoomStressTest` chama `getNext()` 80 vezes com `sleep(2)` entre elas. É o
+    gerador de carga do teste, não o código da aplicação; clientes que sobrarem na sala contam como falha.
 - Provas negativas: sem a correção da interrupção depois de chamado, o `RobustnessTest` acusa 200
   atendimentos fantasma; com o contador da lotação fora do lock do log, o `IntegrationInvariantsTest` acusa a
   sequência quebrada.

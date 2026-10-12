@@ -23,7 +23,7 @@ Barbeiros e clientes são implementados como **Threads independentes**, competin
 2. Se entrou e há lugar no sofá, ele se senta. Caso contrário, ele **espera em pé**.
 3. Quando um barbeiro fica livre, ele chama o cliente **há mais tempo no sofá**. Nesse momento, o cliente **há mais tempo em pé** é promovido e ocupa o lugar que vagou no sofá.
 4. O barbeiro corta o cabelo do cliente.
-5. Ao final do corte, o cliente disputa a POS para pagar (só um pagamento por vez, entre todos os barbeiros).
+5. Ao final do corte, o cliente paga na POS (só um pagamento por vez, entre todos os barbeiros). No código, quem disputa a máquina é o barbeiro que o atende.
 6. O cliente sai, liberando uma vaga na capacidade total (20).
 
 ---

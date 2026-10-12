@@ -5,7 +5,7 @@ import barbearia.barbeiro.BarberChair;
 import barbearia.barbeiro.BarberState;
 import barbearia.cliente.Client;
 import barbearia.cliente.WaitingRoom;
-import barbearia.integracao.CaixaPOS;
+import barbearia.integracao.PosTerminal;
 
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -34,12 +34,15 @@ public class BarberManualTest {
 
         System.out.println();
         System.out.println("=== RESULTADO: " + passed + " passaram, " + failed + " falharam ===");
+        if (failed > 0) {
+            System.exit(1);
+        }
     }
 
     private static void testSingleClientSingleBarber() throws InterruptedException {
         System.out.println("\n--- Caso 1: 1 Barbeiro atende 1 Cliente completo ---");
         WaitingRoom room = new WaitingRoom();
-        CaixaPOS pos = new CaixaPOS();
+        PosTerminal pos = new PosTerminal();
         BarberChair chair = new BarberChair(1, "Barbeiro-01");
         Barber barber = new Barber(1, "Barbeiro-01", chair, room, pos, 20, 10);
 
@@ -54,7 +57,7 @@ public class BarberManualTest {
         check("Thread do cliente terminou (atendimento completo)", !clientThread.isAlive());
         check("Barbeiro atendeu exatamente 1 cliente", barber.getClientsServed() == 1);
         check("Cadeira voltou a ficar livre", !chair.isOccupied());
-        check("Transacoes no CaixaPOS registradas: 1", pos.getCompletedTransactions() == 1);
+        check("Transacoes no PosTerminal registradas: 1", pos.getCompletedTransactions() == 1);
 
         barber.stop();
         barberThread.join(1000);
@@ -63,7 +66,7 @@ public class BarberManualTest {
     private static void testThreeBarbersAndChairs() throws InterruptedException {
         System.out.println("\n--- Caso 2: 3 Barbeiros e 3 Cadeiras atendendo 4 clientes ---");
         WaitingRoom room = new WaitingRoom();
-        CaixaPOS pos = new CaixaPOS();
+        PosTerminal pos = new PosTerminal();
 
         Barber b1 = new Barber(1, "Barbeiro-01", room, pos);
         Barber b2 = new Barber(2, "Barbeiro-02", room, pos);
@@ -101,8 +104,8 @@ public class BarberManualTest {
     }
 
     private static void testPOSMutualExclusion() throws InterruptedException {
-        System.out.println("\n--- Caso 3: Validacao de Exclusao Mutua no CaixaPOS ---");
-        CaixaPOS pos = new CaixaPOS();
+        System.out.println("\n--- Caso 3: Validacao de Exclusao Mutua no PosTerminal ---");
+        PosTerminal pos = new PosTerminal();
         AtomicBoolean concurrentViolation = new AtomicBoolean(false);
 
         Thread[] threads = new Thread[5];
@@ -127,14 +130,14 @@ public class BarberManualTest {
             t.join(2000);
         }
 
-        check("Zero violacoes de exclusao mutua no CaixaPOS", !concurrentViolation.get());
-        check("Total de 5 transacoes realizadas no CaixaPOS", pos.getCompletedTransactions() == 5);
+        check("Zero violacoes de exclusao mutua no PosTerminal", !concurrentViolation.get());
+        check("Total de 5 transacoes realizadas no PosTerminal", pos.getCompletedTransactions() == 5);
     }
 
     private static void testBarberSleepAndWakeup() throws InterruptedException {
         System.out.println("\n--- Caso 4: Barbeiro dorme sem busy-wait e acorda quando chega cliente ---");
         WaitingRoom room = new WaitingRoom();
-        CaixaPOS pos = new CaixaPOS();
+        PosTerminal pos = new PosTerminal();
         Barber barber = new Barber(1, "Barbeiro-Sono", room, pos);
 
         Thread barberThread = new Thread(barber);

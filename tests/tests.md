@@ -1,120 +1,80 @@
-# Notas técnicas — Testes de concorrência da `WaitingRoom`
+# Testes
 
-> Documento de apoio para preencher as questões 1–5 do relatório. Contém evidências
-> empíricas coletadas antes de implementar sincronização, servindo como baseline
-> "antes" para comparar com a versão sincronizada depois.
+Todos os testes ficam no pacote `tests`, sem dependência externa (sem JUnit): cada um é uma classe com
+`main` que imprime o que verificou e **sai com código diferente de zero se algo falhar**.
 
-## 1. Contexto do experimento
+## Como rodar
 
-A classe `WaitingRoom` (frente Cliente/Espera) foi implementada primeiro em sua
-forma sequencial (sem nenhuma primitiva de sincronização), usando `ArrayDeque<Client>`
-para as duas filas (sofá e em pé). Antes de adicionar `synchronized`/`wait`/`notifyAll`,
-foi construído um teste de estresse (`WaitingRoomStressTest.java`) para **provar
-empiricamente** a necessidade da sincronização, em vez de assumir por teoria.
-
-### Metodologia do teste de estresse
-
-- **Carga:** 40 threads `Client` concorrentes tentando `enter()` ao mesmo tempo
-  (capacidade real da sala: 17 = 4 sentados + 13 em pé).
-- **Concorrência adicional:** uma thread "barbeiro falso" chamando `getNext()`
-  repetidamente em paralelo às entradas dos clientes — para gerar sobreposição
-  real entre leitura/escrita das duas filas.
-- **Repetição:** 20 rodadas independentes, cada uma com uma `WaitingRoom` nova.
-  Repetição é necessária porque bugs de concorrência são **probabilísticos**,
-  não determinísticos — uma única execução limpa não prova ausência de bug.
-- **Instrumentação de debug:** um `Thread.sleep(2)` foi inserido temporariamente
-  dentro do `enter()` (entre a checagem de capacidade e a inserção na fila) para
-  alargar a janela de risco entre threads e aumentar a chance de expor a race
-  condition. Removido depois de confirmado o problema.
-
-## 2. Resultado observado (versão sem sincronização, com sleep de debug)
-
-```
-=== 1 de 20 rodadas tiveram algum problema ===
-Rodada 8: 78 excecoes, 1 atendimentos, 1 distintos  <-- PROBLEMA
+```bash
+scripts/run-tests.sh        # Linux / Git Bash
+.\scripts\run-tests.ps1     # Windows PowerShell
 ```
 
-**Exceção obtida (repetida 78 vezes na mesma rodada):**
+Os dois compilam `src/` e `tests/` (`javac -encoding UTF-8 -Xlint:all`), rodam os 10 testes em sequência e
+terminam com `TODOS OS 10 TESTES PASSARAM` (código 0) ou com a lista dos que falharam (código 1). Leva
+cerca de 50 s.
+
+Para rodar um teste isolado: `java -cp out tests.<Nome>`.
+
+## O que cada teste cobre
+
+| Teste | Tipo | Cobertura |
+| --- | --- | --- |
+| `BarberManualTest` | unitário/integração | 1 barbeiro e 1 cliente ponta a ponta; 3 barbeiros e 4 clientes; exclusão mútua da POS; barbeiro dorme (`SLEEPING`) e acorda com a chegada do cliente |
+| `WaitingRoomManualTest` | unitário | promoção em pé → sofá; sofá sem fila em pé; sofá vazio; 18º cliente recusado (sala com 17); FIFO de 17 clientes; cliente do sofá interrompido promove o primeiro em pé |
+| `FifoIntegrationTest` | FIFO | 6 clientes entrando um a um (caso controlado) **e** 17 clientes liberados juntos por `CountDownLatch` (caso concorrente): ordem de chamada == ordem de entrada e promoção na ordem da fila em pé. Espera no monitor da sala, sem polling |
+| `RobustnessTest` | falhas | gap 6: exceção inesperada em `chair.occupy` não deixa o cliente preso; gap 7: interrupção depois de `iAmNext` (200 tentativas, caminho exercitado e contado); desistência antes de ser chamado; interrupção durante o corte |
+| `FailureDetectionTest` | diagnóstico | deadlock sintético (dois locks em ordem cruzada) reconhecido por `ThreadMXBean.findDeadlockedThreads`; timeout da `Simulation` com dump; `Main` sai com 2 (timeout), 0 (normal) e 64 (argumento inválido) |
+| `CapacityVsRoomTest` | gap 17 | com 3 clientes nas cadeiras e 17 na sala, o 21º é barrado pela `Capacity`, não pela sala; com chegadas escalonadas a sala nunca recusa; em rajada recusa muito menos que a `Capacity` |
+| `WaitingRoomStressTest` | estresse | 20 rodadas, 40 clientes contra um "barbeiro falso": sem exceção, sem atendimento duplicado, sem cliente preso |
+| `BarberStressTest` | estresse | 10 rodadas, 50 clientes, 3 barbeiros: sem deadlock, pagamentos == atendimentos |
+| `IntegrationStressTest` | estresse | 20 rodadas de 100 clientes em rajada pela `Simulation`; cada falha lista a invariante violada e os valores |
+| `IntegrationInvariantsTest` | invariantes | 30 rodadas da `Simulation` (rajada, chegadas rápidas, moderadas e a configuração calibrada), ver abaixo |
+
+## Invariantes verificadas por rodada (`IntegrationInvariantsTest`)
+
+Cada verificação que falha imprime **qual invariante quebrou e com quais valores** (ex.:
+`atendidos + desistentes == N (49 + 0 != 50)`).
+
+- **Recursos:** lotação ≤ 20; sofá ≤ 4; em pé ≤ 13; cadeiras ocupadas ≤ 3; no máximo 1 pagamento simultâneo
+  na POS.
+- **Contas:** atendidos + desistentes = N; pagamentos = atendimentos; soma dos barbeiros = métricas;
+  desistências por lotação e por sala batem com os contadores da `Capacity` e da `WaitingRoom`.
+- **Estado final:** vagas todas devolvidas (lotação 0, 20 permissões); sala vazia; sem timeout; nenhuma
+  exceção não tratada (`UncaughtExceptionHandler`).
+- **FIFO sob concorrência real:** ordem de chamada == ordem de entrada na sala; ordem de chamada == ordem de
+  chegada ao sofá; promoção em pé → sofá na ordem da fila em pé; todo atendido foi chamado do sofá.
+- **Log:** todas as linhas no formato `[mm:ss.SSS] [Thread-Cliente-NN|Thread-Barbeiro-NN] EVENTO: mensagem`
+  com os seis eventos do enunciado; timestamps em ordem cronológica; ator lógico (`ATENDIMENTO` = barbeiro,
+  demais = cliente); lotação no log variando de 1 em 1, nunca acima de 20 e voltando a 0; 1 `CHEGADA` por
+  cliente; 1 `SAÍDA` por admitido; 2 `PAGAMENTO` por atendido; a `SAÍDA` de cada atendido cita o barbeiro
+  que recebeu o pagamento.
+
+Além disso, um teste unitário da `Capacity` (20 entradas, 21ª recusada sem bloquear, vaga devolvida e
+reutilizada).
+
+## Última execução (Windows 11, 8 processadores lógicos, JDK 17.0.14)
 
 ```
-java.lang.NullPointerException: Cannot invoke "Client.getName()" because "<local1>" is null
+BarberManualTest            13 passaram, 0 falharam
+WaitingRoomManualTest       18 passaram, 0 falharam
+FifoIntegrationTest         OK (controlado e concorrente)
+RobustnessTest              26 passaram, 0 falharam (gap 7 exercitado em 200/200 tentativas)
+FailureDetectionTest        10 passaram, 0 falharam
+CapacityVsRoomTest          36 passaram, 0 falharam
+WaitingRoomStressTest       0 de 20 rodadas com problema
+BarberStressTest            0 de 10 rodadas com problema
+IntegrationStressTest       20/20 rodadas aprovadas
+IntegrationInvariantsTest   907 verificações passaram, 0 falharam (30 rodadas, 1750 clientes)
+TODOS OS 10 TESTES PASSARAM
 ```
 
-### Causa raiz
+## Provas negativas feitas durante a refatoração
 
-No método `getNext()`:
+Para garantir que os testes detectam os defeitos que dizem detectar, cada correção foi revertida
+temporariamente e o teste correspondente foi rodado:
 
-```java
-if (this.seatedClients.isEmpty()) {   // passo 1: checa
-    return null;
-}
-Client client = seatedClients.poll(); // passo 2: remove
-System.out.println(client.getName() + " is being served."); // passo 3: usa
-```
-
-`isEmpty()` e `poll()` são duas operações separadas, não atômicas entre si.
-`ArrayDeque` **não é thread-safe**: chamadas concorrentes de `enter()` (que fazem
-`offer()`) em outras threads, sobrepostas com o `poll()`/`isEmpty()` de `getNext()`,
-corrompem o estado interno da estrutura. O resultado observado foi `poll()`
-retornando `null` mesmo logo depois de `isEmpty()` ter retornado `false` —
-sintoma clássico de estado inconsistente sob acesso concorrente não protegido.
-
-### Observação sobre a posição do `sleep` de debug
-
-O `Thread.sleep` foi colocado dentro do `enter()`, o que alarga principalmente a
-janela de sobreposição **entre chamadas concorrentes de `enter()`**. O bug que
-apareceu, porém, nasce da sobreposição **entre `enter()` e `getNext()`**. Isso
-sugere que, para maximizar a reprodução desse tipo específico de falha, o sleep
-teria mais efeito se colocado dentro do próprio `getNext()`, entre o `isEmpty()`
-e o `poll()`. Fica registrado como nota metodológica: a posição do delay de
-debug importa porque cada seção crítica tem sua própria janela de risco.
-
-## 3. Como isso se conecta com as questões do relatório
-
-**Questão 2 (Arquitetura de Sincronização, Exclusão Mútua e Ausência de Lost
-Wake-ups)** — este experimento é a evidência empírica direta de que, sem uma
-seção crítica única protegendo `seatedClients` e `standingClients`, ocorrem
-race conditions reais e reproduzíveis (não apenas hipotéticas). O `NullPointerException`
-observado documenta um mecanismo concreto de falha: checagem e ação separadas
-(`isEmpty()` → `poll()`) sob uma estrutura de dados não thread-safe.
-
-**Questão 3 (Disciplina de Fila / Fairness)** — ainda não testado diretamente;
-depende da implementação de `wait`/`notifyAll` (ou `Semaphore` com fairness).
-Fica como próximo experimento: depois de sincronizar, repetir uma carga
-concorrente e verificar se a ordem de atendimento continua batendo com a ordem
-de chegada (FIFO), o que hoje só foi validado sequencialmente (uma thread por vez).
-
-**Questão 4 (Análise Comparativa Monoprocessador vs. Multicore)** — este
-experimento ainda não mede tempo/desempenho, apenas corretude. A tabela
-comparativa do enunciado precisa de uma rodada separada, com a versão já
-sincronizada e sem o `sleep` de debug (que distorceria os tempos).
-
-**Questão 5 (Trade-offs de Arquitetura)** — a observação sobre a posição do
-`sleep` de debug é um bom gancho para discutir como diferentes primitivas de
-sincronização (`synchronized`/`wait`/`notifyAll` vs. `Lock`+`Condition` vs.
-`BlockingQueue`) mudam a granularidade e a localização das seções críticas.
-
-## 4. Checklist do que falta antes da versão final
-
-- [ ] Adicionar seção crítica única (`synchronized` ou `Lock`) cobrindo
-      `enter()` e `getNext()` em conjunto, incluindo a lógica de promoção.
-- [ ] Implementar o bloqueio do `Client` até ser chamado (hoje ele só tenta
-      entrar uma vez e termina — falta o `wait()` dentro de um método tipo
-      "sente e espere").
-- [ ] Repetir o mesmo `WaitingRoomStressTest` na versão sincronizada e
-      confirmar `0 de 20 rodadas com problema` — este é o par "antes/depois"
-      que vai para o relatório.
-- [ ] Repetir o teste de FIFO (Caso 5 do `WaitingRoomManualTest`) agora sob
-      carga concorrente, não só sequencial.
-- [ ] Remover (ou comentar, guardando para reprodução futura) o
-      `Thread.sleep` de debug antes da entrega final.
-- [ ] Coletar os tempos médios pedidos na tabela da questão 4, em cenário
-      monoprocessador (afinidade de CPU) e multicore livre.
-
-## 5. Dados brutos de referência
-
-- Configuração do teste: `NUM_CLIENTS = 40`, `BARBER_ATTEMPTS = 80`, `NUM_ROUNDS = 20`.
-- Capacidade real testada: `MAX_SEATED_CLIENTS = 4`, `MAX_STANDING_CLIENTS = 13` (total 17).
-- Taxa de falha observada nesta rodada: 1/20 (5%) — amostra pequena, sujeita a
-  variação; não interpretar como taxa exata, apenas como confirmação de que o
-  bug existe e é reproduzível.
+- sem a correção do gap 7 em `WaitingRoom.enter`, o `RobustnessTest` acusa 200 atendimentos "fantasma" em
+  200 tentativas;
+- com o contador de lotação incrementado fora do lock do log (gap 10), o `IntegrationInvariantsTest` acusa
+  `lotacao varia de 1 em 1` já nas primeiras rodadas.

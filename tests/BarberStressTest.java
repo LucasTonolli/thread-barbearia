@@ -4,7 +4,7 @@ import barbearia.barbeiro.Barber;
 import barbearia.barbeiro.BarberChair;
 import barbearia.cliente.Client;
 import barbearia.cliente.WaitingRoom;
-import barbearia.integracao.CaixaPOS;
+import barbearia.integracao.PosTerminal;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -47,11 +47,14 @@ public class BarberStressTest {
             System.out.println(" [FALHA] Houve inconsistencias ou travamentos em " + problemRounds + " rodadas.");
         }
         System.out.println("=================================================================");
+        if (problemRounds > 0) {
+            System.exit(1);
+        }
     }
 
     private static boolean runStressRound(int round) throws InterruptedException {
         WaitingRoom room = new WaitingRoom();
-        CaixaPOS pos = new CaixaPOS();
+        PosTerminal pos = new PosTerminal();
 
         AtomicInteger exceptionsCount = new AtomicInteger(0);
         AtomicBoolean deadlockDetected = new AtomicBoolean(false);

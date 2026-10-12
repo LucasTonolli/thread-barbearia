@@ -20,3 +20,7 @@ build/
 *.log
 .DS_Store
 Thumbs.db
+
+# Saidas da simulacao (regeneraveis); resultados/tabela-q4.md continua versionado
+logs/
+resultados/*.csv

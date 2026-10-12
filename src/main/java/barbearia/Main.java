@@ -1,156 +1,131 @@
 package barbearia;
 
-import barbearia.barbeiro.Barbeiro;
-import barbearia.cliente.Client;
-import barbearia.cliente.WaitingRoom;
-import barbearia.integracao.CaixaPOS;
-import barbearia.integracao.CapacityControl;
-import barbearia.integracao.Logger;
+import barbearia.barbeiro.Barber;
+import barbearia.integracao.AuditLogger;
 
-import java.util.ArrayList;
+import java.io.IOException;
+import java.nio.file.Path;
 import java.util.List;
 
 /**
- * Integracao final da simulacao do Problema da Barbearia de Hilzer.
+ * Ponto de entrada da simulacao do Problema da Barbearia de Hilzer.
+ *
+ * Uso: java -cp out barbearia.Main [--clientes N] [--cenario A|B] [--seed S]
+ *          [--intervalo-max-ms MS] [--corte-ms MS] [--pagamento-ms MS] [--timeout-s S]
+ *          [--execucao K] [--silencioso]
+ *
+ * O cenario (A = monoprocessador, B = multicore) e um rotulo para o log e o CSV: a afinidade
+ * de CPU e aplicada de fora, pelos scripts em scripts/. O numero de processadores que a JVM
+ * enxerga e registrado no inicio do log como prova.
  */
 public class Main {
 
-    private static final int NUMERO_DE_CLIENTES = 50;
-    private static final int CAPACIDADE_MAXIMA = 20;
+    static final int EXIT_OK = 0;
+    static final int EXIT_FAILURE = 2;
+    static final int EXIT_USAGE = 64;
 
-    public static void main(String[] args) {
-        Logger.reset();
+    public static void main(String[] args) throws InterruptedException {
+        Simulation.Config cfg = new Simulation.Config();
+        String scenario = "B";
+        int execution = 0;
+        boolean quiet = false;
 
-        System.out.println("======================================");
-        System.out.println("   SIMULACAO DA BARBEARIA DE HILZER");
-        System.out.println("======================================");
-
-        WaitingRoom waitingRoom = new WaitingRoom();
-        CaixaPOS pos = new CaixaPOS();
-        CapacityControl capacity = new CapacityControl(CAPACIDADE_MAXIMA);
-
-        Barbeiro barbeiro1 = new Barbeiro(1, "Barbeiro-01", waitingRoom, pos);
-        Barbeiro barbeiro2 = new Barbeiro(2, "Barbeiro-02", waitingRoom, pos);
-        Barbeiro barbeiro3 = new Barbeiro(3, "Barbeiro-03", waitingRoom, pos);
-
-        Thread threadBarbeiro1 = new Thread(barbeiro1, "Thread-Barbeiro-01");
-        Thread threadBarbeiro2 = new Thread(barbeiro2, "Thread-Barbeiro-02");
-        Thread threadBarbeiro3 = new Thread(barbeiro3, "Thread-Barbeiro-03");
-
-        threadBarbeiro1.start();
-        threadBarbeiro2.start();
-        threadBarbeiro3.start();
-
-        List<Thread> clientThreads = new ArrayList<>();
-
-        for (int i = 1; i <= NUMERO_DE_CLIENTES; i++) {
-            String clientName = "Cliente-" + String.format("%02d", i);
-            Client client = new Client(clientName, waitingRoom);
-
-            Thread clientThread = new Thread(() -> {
-                if (!capacity.tryEnter(client.getName())) {
-                    return;
-                }
-
-                try {
-                    client.run();
-                } finally {
-                    capacity.leave(client.getName(), client.isAttendanceCompleted());
-                }
-            }, "Thread-" + clientName);
-
-            clientThreads.add(clientThread);
-            clientThread.start();
-        }
-
-        joinAll(clientThreads);
-
-        barbeiro1.stop();
-        barbeiro2.stop();
-        barbeiro3.stop();
-
-        joinThread(threadBarbeiro1);
-        joinThread(threadBarbeiro2);
-        joinThread(threadBarbeiro3);
-
-        int totalServed = barbeiro1.getClientsServed()
-                + barbeiro2.getClientsServed()
-                + barbeiro3.getClientsServed();
-
-        printSummary(waitingRoom, pos, capacity, barbeiro1, barbeiro2, barbeiro3, totalServed);
-        validateInvariants(waitingRoom, pos, capacity, totalServed);
-    }
-
-    private static void joinAll(List<Thread> threads) {
-        for (Thread thread : threads) {
-            joinThread(thread);
-        }
-    }
-
-    private static void joinThread(Thread thread) {
         try {
-            thread.join();
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new IllegalStateException("Thread principal interrompida durante join().", e);
+            for (int i = 0; i < args.length; i++) {
+                switch (args[i]) {
+                    case "--clientes" -> cfg.clients = Integer.parseInt(args[++i]);
+                    case "--cenario" -> scenario = args[++i].toUpperCase();
+                    case "--seed" -> cfg.seed = Long.parseLong(args[++i]);
+                    case "--intervalo-max-ms" -> cfg.maxArrivalIntervalMs = Integer.parseInt(args[++i]);
+                    case "--corte-ms" -> cfg.cutMs = Long.parseLong(args[++i]);
+                    case "--pagamento-ms" -> cfg.paymentMs = Long.parseLong(args[++i]);
+                    case "--timeout-s" -> cfg.timeoutMs = Long.parseLong(args[++i]) * 1000L;
+                    case "--execucao" -> execution = Integer.parseInt(args[++i]);
+                    case "--silencioso" -> quiet = true;
+                    default -> throw new IllegalArgumentException("argumento desconhecido: " + args[i]);
+                }
+            }
+            if (!scenario.equals("A") && !scenario.equals("B")) {
+                throw new IllegalArgumentException("--cenario deve ser A ou B");
+            }
+        } catch (RuntimeException e) {
+            System.err.println("Erro: " + e.getMessage());
+            System.err.println("Uso: java -cp out barbearia.Main [--clientes N] [--cenario A|B] [--seed S]"
+                    + " [--intervalo-max-ms MS] [--corte-ms MS] [--pagamento-ms MS] [--timeout-s S]"
+                    + " [--execucao K] [--silencioso]");
+            System.exit(EXIT_USAGE);
+            return;
         }
+
+        String label = scenario + (execution > 0 ? "-" + execution : "");
+        int cpus = Runtime.getRuntime().availableProcessors();
+        String environment = String.format(
+                "Cenario %s | processadores visiveis para a JVM: %d | Java %s | %d clientes, seed %d,"
+                        + " chegadas 0-%d ms, corte %d ms, pagamento %d ms",
+                scenario, cpus, System.getProperty("java.version"), cfg.clients, cfg.seed,
+                cfg.maxArrivalIntervalMs, cfg.cutMs, cfg.paymentMs);
+
+        int exitCode;
+        try (AuditLogger logger = new AuditLogger(Path.of("logs", "execucao-" + label + ".log"), !quiet, false)) {
+            logger.note(environment);
+            if (quiet) {
+                System.out.println("# " + environment);
+            }
+
+            Simulation.Result result;
+            try {
+                result = Simulation.run(cfg, logger);
+            } catch (RuntimeException e) {
+                // Falha na propria orquestracao (ex.: arquivo de log): diagnostico e saida 2.
+                System.err.println("FALHA na simulacao: " + e);
+                e.printStackTrace();
+                System.err.println(Simulation.diagnoseThreads());
+                System.exit(EXIT_FAILURE);
+                return;
+            }
+
+            if (result.diagnostic != null) {
+                System.err.println(result.timedOut
+                        ? "TIMEOUT: a simulacao nao terminou em " + cfg.timeoutMs / 1000 + " s (possivel deadlock)."
+                        : "FALHA: excecao nao tratada em alguma thread.");
+                System.err.println(result.diagnostic);
+                for (String line : result.diagnostic.split("\n")) {
+                    logger.note(line);
+                }
+            }
+            printSummary(result);
+            Path csv = Path.of("resultados", "resultados-" + label + ".csv");
+            try {
+                result.metrics.writeCsv(csv, scenario, execution, cfg.clients, cpus);
+                System.out.println("Metricas gravadas em " + csv);
+            } catch (IOException e) {
+                System.err.println("Nao foi possivel gravar " + csv + ": " + e);
+            }
+
+            List<String> violations = Simulation.checkInvariants(result);
+            if (violations.isEmpty()) {
+                System.out.println("VALIDACAO FINAL: todas as invariantes foram respeitadas.");
+                exitCode = EXIT_OK;
+            } else {
+                System.err.println("VALIDACAO FINAL: invariantes violadas:");
+                violations.forEach(v -> System.err.println("  - " + v));
+                exitCode = EXIT_FAILURE;
+            }
+        }
+        System.exit(exitCode);
     }
 
-    private static void printSummary(
-            WaitingRoom waitingRoom,
-            CaixaPOS pos,
-            CapacityControl capacity,
-            Barbeiro b1,
-            Barbeiro b2,
-            Barbeiro b3,
-            int totalServed
-    ) {
-        System.out.println();
-        System.out.println("======================================");
-        System.out.println("          RESUMO DA SIMULACAO");
-        System.out.println("======================================");
-        System.out.println("Clientes tentados: " + NUMERO_DE_CLIENTES);
-        System.out.println("Entradas aceitas pelo controle de capacidade: " + capacity.getAdmittedCount());
-        System.out.println("Desistencias por lotacao total: " + capacity.getRejectedCount());
-        System.out.println("Desistencias por sala de espera cheia: " + waitingRoom.getRejectedCount());
-        System.out.println("Clientes atendidos: " + totalServed);
-        System.out.println("  - " + b1.getName() + ": " + b1.getClientsServed());
-        System.out.println("  - " + b2.getName() + ": " + b2.getClientsServed());
-        System.out.println("  - " + b3.getName() + ": " + b3.getClientsServed());
-        System.out.println("Transacoes concluidas na POS: " + pos.getCompletedTransactions());
-        System.out.println("Maior concorrencia observada na POS: " + pos.getMaxConcurrentTransactions());
-        System.out.println("Lotacao maxima observada: " + capacity.getMaxObserved() + "/" + CAPACIDADE_MAXIMA);
-        System.out.println("Vagas disponiveis ao final: " + capacity.availablePermits());
-        System.out.println("Sala de espera vazia ao final: " + waitingRoom.isEmpty());
-        System.out.println("======================================");
-    }
-
-    private static void validateInvariants(
-            WaitingRoom waitingRoom,
-            CaixaPOS pos,
-            CapacityControl capacity,
-            int totalServed
-    ) {
-        if (capacity.getMaxObserved() > CAPACIDADE_MAXIMA) {
-            throw new IllegalStateException("A capacidade maxima foi ultrapassada.");
+    private static void printSummary(Simulation.Result r) {
+        System.out.println("================ RESUMO DA SIMULACAO ================");
+        System.out.print(r.metrics.summary(r.config.clients));
+        for (Barber b : r.barbers) {
+            System.out.println("Atendidos por " + b.getName() + "               : " + b.getClientsServed());
         }
-
-        if (capacity.availablePermits() != CAPACIDADE_MAXIMA || capacity.getCurrentOccupancy() != 0) {
-            throw new IllegalStateException("Nem todas as vagas foram devolvidas ao final da simulacao.");
-        }
-
-        if (!waitingRoom.isEmpty()) {
-            throw new IllegalStateException("A sala de espera nao terminou vazia.");
-        }
-
-        if (pos.getMaxConcurrentTransactions() > 1) {
-            throw new IllegalStateException("Mais de um pagamento ocorreu simultaneamente na POS.");
-        }
-
-        if (pos.getCompletedTransactions() != totalServed) {
-            throw new IllegalStateException("Quantidade de pagamentos diferente da quantidade de atendimentos.");
-        }
-
-        System.out.println("VALIDACAO FINAL: todas as invariantes foram respeitadas.");
+        System.out.println("Transacoes na POS                   : " + r.pos.getCompletedTransactions());
+        System.out.println("Pico de lotacao / sofa / em pe      : " + r.capacity.getMaxObserved() + " / "
+                + r.room.getPeakSeated() + " / " + r.room.getPeakStanding());
+        System.out.println("Pico de cadeiras ocupadas           : " + r.metrics.getPeakChairs());
+        System.out.println("Maximo de pagamentos simultaneos    : " + r.pos.getMaxConcurrentTransactions());
+        System.out.println("=====================================================");
     }
 }

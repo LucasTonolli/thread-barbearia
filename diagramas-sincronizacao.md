@@ -178,7 +178,7 @@ stateDiagram-v2
 | t5 | Promoção: era a cabeça da fila em pé quando um barbeiro chamou alguém | `WaitingRoom.getNext` |
 | t6 | Interrompido antes de ser chamado; se estava no sofá, o primeiro em pé é promovido | `WaitingRoom.enter` (catch) |
 | t7 | Era a cabeça do sofá: barbeiro marca `iAmNext` | `WaitingRoom.getNext` |
-| t8 | Interrompido depois de chamado: segue para o atendimento (gap 7) | `WaitingRoom.enter`, `Client.waitUntilAttended` |
+| t8 | Interrompido depois de chamado: segue para o atendimento, sem gerar atendimento "fantasma" | `WaitingRoom.enter`, `Client.waitUntilAttended` |
 | t9 | Corte e pagamento concluídos | `Barber.serve` |
 | t10 | Barbeiro interrompido ou falhou: o `finally` destrava o cliente | `Barber.serve` (finally) |
 | t11 | Devolve a vaga e registra `SAÍDA` (com o barbeiro ou com o motivo) | `Client.run` (finally) |
@@ -197,10 +197,17 @@ stateDiagram-v2
     RECEIVING_PAYMENT --> CALLING_CLIENT : release, completeAttendance e há cliente no sofá
     RECEIVING_PAYMENT --> SLEEPING : release, completeAttendance e sofá vazio (wait)
     SLEEPING --> FINISHED : stopWhenEmpty com sala vazia, stop ou interrupção
+    RECEIVING_PAYMENT --> FINISHED : stopWhenEmpty e sala já vazia, ou interrompido
+    CUTTING_HAIR --> FINISHED : interrompido
+    WAITING_POS --> FINISHED : interrompido
     FINISHED --> [*]
 ```
 
-Em `SLEEPING` a thread está em `wait()` no monitor da sala: bloqueada de verdade, sem consumir CPU.
+Em `SLEEPING` a thread está em `wait()` no monitor da sala: bloqueada de verdade, sem consumir CPU. Ao terminar
+um atendimento, o barbeiro só passa por `SLEEPING` se o sofá estiver vazio; se o encerramento já foi pedido e
+a sala está vazia, ele vai direto para `FINISHED`. Interrompido no meio do atendimento, ele destrava o cliente
+no `finally` e encerra. Uma exceção inesperada mata a thread sem passar por `FINISHED` (o
+`UncaughtExceptionHandler` da `Simulation` registra a falha).
 
 ---
 

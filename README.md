@@ -121,7 +121,8 @@ atender menos de 50 clientes ou se o cenário A não enxergar exatamente 1 proce
 `-Clientes`, `-Repeticoes`, `-Seed`, `-IntervaloMaxMs`, `-CorteMs`, `-PagamentoMs` (no `.sh`, posicionais na
 mesma ordem).
 
-Para rodar um cenário avulso (aceita as mesmas opções do `Main`):
+Para rodar um cenário avulso (aceita as mesmas opções do `Main`). Esses scripts **não compilam**: rode antes
+o passo 1 do [Início rápido](#início-rápido).
 
 |                      | Windows                         | Linux                        |
 | -------------------- | ------------------------------- | ---------------------------- |
@@ -160,6 +161,5 @@ resultados/       tabela-q4.md (CSVs gerados não são versionados)
 ## Documentação
 
 - [visao-geral.md](visao-geral.md): o problema, glossário, requisitos, restrições e arquitetura.
-- [instrucoes.md](instrucoes.md): contrato de uso de `Client` e `WaitingRoom`.
 - [tests/tests.md](tests/tests.md): cobertura dos testes e últimos resultados.
 - [notas_decisoes.md](notas_decisoes.md): decisões de implementação e análise do experimento.

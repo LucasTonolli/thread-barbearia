@@ -161,5 +161,6 @@ resultados/       tabela-q4.md (CSVs gerados não são versionados)
 ## Documentação
 
 - [visao-geral.md](visao-geral.md): o problema, glossário, requisitos, restrições e arquitetura.
+- [diagramas-sincronizacao.md](diagramas-sincronizacao.md): diagramas de locks, sequência e estados.
 - [tests/tests.md](tests/tests.md): cobertura dos testes e últimos resultados.
 - [notas_decisoes.md](notas_decisoes.md): decisões de implementação e análise do experimento.

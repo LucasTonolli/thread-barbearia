@@ -57,6 +57,10 @@ public class BarberStressTest {
         PosTerminal pos = new PosTerminal();
 
         AtomicInteger exceptionsCount = new AtomicInteger(0);
+        Thread.UncaughtExceptionHandler countExceptions = (t, e) -> {
+            exceptionsCount.incrementAndGet();
+            System.err.println("  [EXCECAO] " + t.getName() + ": " + e);
+        };
         AtomicBoolean deadlockDetected = new AtomicBoolean(false);
 
         List<Barber> barbers = new ArrayList<>();
@@ -67,6 +71,7 @@ public class BarberStressTest {
             Barber b = new Barber(i, "Barbeiro-" + i, chair, room, pos, 5, 3);
             barbers.add(b);
             Thread bt = new Thread(b, "Thread-Barbeiro-0" + i);
+            bt.setUncaughtExceptionHandler(countExceptions);
             barberThreads.add(bt);
         }
 
@@ -82,6 +87,7 @@ public class BarberStressTest {
             Client c = new Client("R" + round + "-Cliente-" + String.format("%02d", i), room);
             clients.add(c);
             Thread ct = new Thread(c, "Thread-Client-" + i);
+            ct.setUncaughtExceptionHandler(countExceptions);
             clientThreads.add(ct);
         }
 

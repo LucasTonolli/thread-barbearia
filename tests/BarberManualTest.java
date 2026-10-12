@@ -8,6 +8,7 @@ import barbearia.cliente.WaitingRoom;
 import barbearia.integracao.PosTerminal;
 
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class BarberManualTest {
 
@@ -107,6 +108,8 @@ public class BarberManualTest {
         System.out.println("\n--- Caso 3: Validacao de Exclusao Mutua no PosTerminal ---");
         PosTerminal pos = new PosTerminal();
         AtomicBoolean concurrentViolation = new AtomicBoolean(false);
+        // Contador proprio, independente da PosTerminal: quantas threads estao entre acquire e release.
+        AtomicInteger inside = new AtomicInteger(0);
 
         Thread[] threads = new Thread[5];
         for (int i = 0; i < 5; i++) {
@@ -114,10 +117,11 @@ public class BarberManualTest {
             threads[i] = new Thread(() -> {
                 try {
                     pos.acquire("Barbeiro-" + id, "Cliente-" + id);
-                    if (pos.getQueueLength() > 0 && !pos.isBusy()) {
+                    if (inside.incrementAndGet() > 1) {
                         concurrentViolation.set(true);
                     }
                     Thread.sleep(15);
+                    inside.decrementAndGet();
                     pos.release("Barbeiro-" + id, "Cliente-" + id);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
@@ -131,6 +135,8 @@ public class BarberManualTest {
         }
 
         check("Zero violacoes de exclusao mutua no PosTerminal", !concurrentViolation.get());
+        check("PosTerminal registrou no maximo 1 pagamento simultaneo",
+                pos.getMaxConcurrentTransactions() == 1);
         check("Total de 5 transacoes realizadas no PosTerminal", pos.getCompletedTransactions() == 5);
     }
 

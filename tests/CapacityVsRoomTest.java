@@ -15,7 +15,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Gap 17: a lotacao de 20 e imposta pela Capacity; a recusa por "sala fisicamente cheia" (17)
+ * A lotacao de 20 e imposta pela Capacity; a recusa por "sala fisicamente cheia" (17)
  * na WaitingRoom e um caminho defensivo.
  *
  *  - Estrutural: com as 3 cadeiras ocupadas, 3 + 17 = 20 = lotacao, entao o 21o cliente e barrado

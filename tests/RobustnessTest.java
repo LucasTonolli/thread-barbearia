@@ -14,15 +14,15 @@ import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Casos de falha e interrupcao:
- *  - gap 6: excecao inesperada no atendimento nao deixa o cliente preso;
- *  - gap 7: interrupcao depois de o cliente ser chamado nao gera atendimento "fantasma";
+ *  - excecao inesperada no atendimento nao deixa o cliente preso;
+ *  - interrupcao depois de o cliente ser chamado nao gera atendimento "fantasma";
  *  - interrupcao antes de ser chamado: o cliente desiste, devolve a vaga e o proximo e promovido;
  *  - interrupcao durante o corte: o cliente so sai depois que o barbeiro encerra.
  */
 public class RobustnessTest {
 
     private static final long TIMEOUT_MS = 2000;
-    private static final int GAP7_ATTEMPTS = 200;
+    private static final int LATE_INTERRUPT_ATTEMPTS = 200;
 
     private static int passed = 0;
     private static int failed = 0;
@@ -65,7 +65,7 @@ public class RobustnessTest {
     }
 
     private static void testUnexpectedExceptionReleasesClient() throws InterruptedException {
-        System.out.println("--- Gap 6: excecao inesperada em chair.occupy ---");
+        System.out.println("--- Excecao inesperada em chair.occupy ---");
         AuditLogger logger = AuditLogger.inMemory();
         WaitingRoom room = new WaitingRoom(logger);
         PosTerminal pos = new PosTerminal(logger);
@@ -101,19 +101,19 @@ public class RobustnessTest {
     }
 
     /**
-     * Gap 7. Sequencia forcada: o teste segura o monitor da sala, interrompe o cliente (que esta
+     * Interrupcao depois de chamado. Sequencia forcada: o teste segura o monitor da sala, interrompe o cliente (que esta
      * em wait()) e so entao o chama com getNext(). Quando o cliente recupera o monitor, o wait()
      * pode lancar InterruptedException mesmo com iAmNext ja marcado. O sleep(1) so alarga a janela
      * para que esse caminho aconteca; as verificacoes valem em qualquer intercalacao.
      */
     private static void testInterruptAfterCalled() throws InterruptedException {
-        System.out.println("--- Gap 7: interrupcao depois de iAmNext (" + GAP7_ATTEMPTS + " tentativas) ---");
+        System.out.println("--- Interrupcao depois de iAmNext (" + LATE_INTERRUPT_ATTEMPTS + " tentativas) ---");
         int ghostAttendances = 0;
         int lostClients = 0;
         int interruptLost = 0;
         int lateInterrupts = 0;
 
-        for (int i = 1; i <= GAP7_ATTEMPTS; i++) {
+        for (int i = 1; i <= LATE_INTERRUPT_ATTEMPTS; i++) {
             AuditLogger logger = AuditLogger.inMemory();
             WaitingRoom room = new WaitingRoom(logger);
             Capacity capacity = new Capacity(Capacity.DEFAULT_MAX, logger);
@@ -157,8 +157,8 @@ public class RobustnessTest {
                 ghostAttendances == 0);
         check("cliente sempre atendido e vaga devolvida (" + lostClients + " falhas)", lostClients == 0);
         check("flag de interrupcao preservada ao fim (" + interruptLost + " perdas)", interruptLost == 0);
-        check("caminho do gap 7 (InterruptedException apos iAmNext) exercitado: "
-                + lateInterrupts + "/" + GAP7_ATTEMPTS + " tentativas", lateInterrupts > 0);
+        check("caminho InterruptedException apos iAmNext exercitado: "
+                + lateInterrupts + "/" + LATE_INTERRUPT_ATTEMPTS + " tentativas", lateInterrupts > 0);
     }
 
     private static void testInterruptBeforeCalled() throws InterruptedException {
